@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Бросок из стакана 3D</title>
+    <style>
+        :root {
+            --dice-size: clamp(45px, 12vw, 70px);
+            --cup-width: clamp(80px, 20vw, 120px);
+            --cup-height: clamp(120px, 28vw, 160px);
+            --table-color: #1a472a;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: radial-gradient(ellipse at center, #2c3e50 0%, #000 100%);
+            perspective: 2000px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: pan-y pinch-zoom;
+            position: fixed;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Стол */
+        .table {
+            position: absolute;
+            width: 300%;
+            height: 300%;
+            background: 
+                radial-gradient(circle at 30% 30%, var(--table-color) 0%, #0d2b1a 100%),
+                repeating-linear-gradient(
+                    0deg,
+                    transparent,
+                    transparent 2px,
+                    rgba(255,255,255,0.02) 2px,
+                    rgba(255,255,255,0.02) 4px
+                );
+            transform: rotateX(75deg) translateZ(-300px) translateX(-25%) translateY(-25%);
+            z-index: -1;
+            box-shadow: 
+                inset 0 0 150px rgba(0, 0, 0, 0.8),
+                0 0 100px rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+        }
+
+        /* Стакан - поднят выше */
+        .cup-container {
+            position: absolute;
+            top: 8%;
+            left: 50%;
+            transform: translateX(-50%);
+            transform-style: preserve-3d;
+            transition: all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+            z-index: 10;
+            filter: drop-shadow(0 10px 20px rgba(0,0,0,0.5));
+        }
+
+        .cup {
+            width: var(--cup-width);
+            height: var(--cup-height);
+            background: linear-gradient(to bottom, 
+                rgba(60, 60, 60, 0.95) 0%,
+                rgba(40, 40, 40, 0.95) 100%);
+            border: 4px solid #666;
+            border-top: none;
+            border-radius: 0 0 25px 25px;
+            position: relative;
+            transform: rotateX(-15deg);
+            box-shadow: 
+                inset 0 -10px 20px rgba(0,0,0,0.5),
+                0 15px 30px rgba(0,0,0,0.4);
+            overflow: hidden;
+        }
+
+        .cup::before {
+            content: '';
+            position: absolute;
+            top: -20px;
+            left: -4px;
+            width: calc(100% + 8px);
+            height: 40px;
+            background: linear-gradient(to bottom, #555, #444);
+            border-radius: 50%;
+            border: 2px solid #777;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        .cup::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, 
+                transparent 0%, 
+                rgba(255,255,255,0.1) 50%, 
+                transparent 100%);
+            pointer-events: none;
+        }
+
+        /* Контейнер для кубиков - теперь в центре */
+        .dice-field {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            gap: 15px;
+            padding: 18vh 8vw 18vh 8vw;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        .dice-wrapper {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 1s cubic-bezier(0.34, 1.56, 0.64, 1);
+            opacity: 0;
+            transform: translate(0, -300px) scale(0.3);
+            filter: drop-shadow(0 5px 10px rgba(0,0,0,0.3));
+            pointer-events: none;
+        }
+
+        .dice {
+            width: var(--dice-size);
+            height: var(--dice-size);
+            position: relative;
+            transform-style: preserve-3d;
+            transition: transform 1.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        /* Грани кубиков */
+        .face {
+            position: absolute; 
+            width: var(--dice-size); 
+            height: var(--dice-size);
+            background: linear-gradient(135deg, #f8f8f8, #e8e8e8);
+            border: 2px solid #ccc;
+            border-radius: 8px;
+            display: grid; 
+            grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+            padding: 6px; 
+            backface-visibility: hidden;
+            box-shadow: 
+                inset 2px 2px 5px rgba(255,255,255,0.6),
+                inset -2px -2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .dot { 
+            width: clamp(6px, 2vw, 10px); 
+            height: clamp(6px, 2vw, 10px); 
+            background: #222; 
+            border-radius: 50%;
+            align-self: center; 
+            justify-self: center;
+            box-shadow: inset 0 0 3px rgba(0,0,0,0.3);
+        }
+        
+        /* Позиции граней */
+        .f1 { transform: rotateY(0deg) translateZ(calc(var(--dice-size)/2)); }
+        .f6 { transform: rotateY(180deg) translateZ(calc(var(--dice-size)/2)); }
+        .f3 { transform: rotateY(90deg) translateZ(calc(var(--dice-size)/2)); }
+        .f4 { transform: rotateY(-90deg) translateZ(calc(var(--dice-size)/2)); }
+        .f2 { transform: rotateX(90deg) translateZ(calc(var(--dice-size)/2)); }
+        .f5 { transform: rotateX(-90deg) translateZ(calc(var(--dice-size)/2)); }
+
+        /* Расположение точек */
+        .face[data-val="1"] .dot:nth-child(1) { grid-area: 2/2; }
+        .face[data-val="2"] .dot:nth-child(1) { grid-area: 1/1; }
+        .face[data-val="2"] .dot:nth-child(2) { grid-area: 3/3; }
+        .face[data-val="3"] .dot:nth-child(1) { grid-area: 1/1; }
+        .face[data-val="3"] .dot:nth-child(2) { grid-area: 2/2; }
+        .face[data-val="3"] .dot:nth-child(3) { grid-area: 3/3; }
+        .face[data-val="4"] .dot:nth-child(1) { grid-area: 1/1; }
+        .face[data-val="4"] .dot:nth-child(2) { grid-area: 1/3; }
+        .face[data-val="4"] .dot:nth-child(3) { grid-area: 3/1; }
+        .face[data-val="4"] .dot:nth-child(4) { grid-area: 3/3; }
+        .face[data-val="5"] .dot:nth-child(1) { grid-area: 1/1; }
+        .face[data-val="5"] .dot:nth-child(2) { grid-area: 1/3; }
+        .face[data-val="5"] .dot:nth-child(3) { grid-area: 2/2; }
+        .face[data-val="5"] .dot:nth-child(4) { grid-area: 3/1; }
+        .face[data-val="5"] .dot:nth-child(5) { grid-area: 3/3; }
+
+        /* Анимация тряски */
+        @keyframes shake {
+            0%, 100% { transform: translateX(-50%) translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-50%) translateX(-5px); }
+            20%, 40%, 60%, 80% { transform: translateX(-50%) translateX(5px); }
+        }
+
+        .shaking {
+            animation: shake 0.5s ease-in-out infinite;
+        }
+
+        /* Кнопка броска - над кубиками */
+        button {
+            position: fixed; 
+            bottom: clamp(15px, 4vh, 25px); 
+            left: 50%;
+            transform: translateX(-50%);
+            padding: clamp(12px, 3.5vw, 16px) clamp(25px, 8vw, 40px);
+            background: linear-gradient(to bottom, #f1c40f, #e67e22);
+            color: #2c3e50; 
+            border: none;
+            border-radius: 50px; 
+            font-weight: bold; 
+            font-size: clamp(16px, 4.5vw, 20px);
+            cursor: pointer;
+            box-shadow: 
+                0 6px 0 #bc9c0d,
+                0 10px 25px rgba(0,0,0,0.4);
+            z-index: 30;
+            transition: all 0.1s ease;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            white-space: nowrap;
+            -webkit-appearance: none;
+            border: 2px solid rgba(255,255,255,0.2);
+        }
+        
+        button:active {
+            transform: translateX(-50%) translateY(4px);
+            box-shadow: 
+                0 2px 0 #bc9c0d,
+                0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        button:disabled {
+            opacity: 0.7;
+            transform: translateX(-50%) translateY(4px);
+            box-shadow: 0 2px 0 #bc9c0d;
+        }
+
+        /* Информационная панель - сверху */
+        .info-panel {
+            position: fixed;
+            top: clamp(10px, 3vh, 15px);
+            right: clamp(10px, 3vw, 15px);
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: clamp(8px, 2.5vw, 12px) clamp(12px, 3.5vw, 18px);
+            border-radius: 12px;
+            font-size: clamp(14px, 4vw, 16px);
+            z-index: 40;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.15);
+            pointer-events: none;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            min-width: 100px;
+            text-align: center;
+        }
+
+        .total {
+            font-size: clamp(22px, 6vw, 28px);
+            font-weight: bold;
+            color: #f1c40f;
+            margin-top: 3px;
+            text-shadow: 0 2px 5px rgba(241, 196, 15, 0.3);
+        }
+
+        /* Контролы для изменения количества - сверху слева */
+        .dice-controls {
+            position: fixed;
+            top: clamp(10px, 3vh, 15px);
+            left: clamp(10px, 3vw, 15px);
+            display: flex;
+            gap: 8px;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 6px 10px;
+            border-radius: 40px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.15);
+            z-index: 40;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+
+        .control-btn {
+            width: clamp(40px, 11vw, 48px);
+            height: clamp(40px, 11vw, 48px);
+            border-radius: 50%;
+            background: linear-gradient(to bottom, #f1c40f, #e67e22);
+            border: none;
+            color: #2c3e50;
+            font-size: clamp(24px, 7vw, 28px);
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            -webkit-appearance: none;
+            box-shadow: 0 4px 0 #bc9c0d;
+            transition: all 0.1s ease;
+            border: 2px solid rgba(255,255,255,0.2);
+        }
+
+        .control-btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 #bc9c0d;
+        }
+
+        .control-btn:disabled {
+            opacity: 0.5;
+            transform: translateY(4px);
+            box-shadow: 0 0 0 #bc9c0d;
+            pointer-events: none;
+        }
+
+        .count-display {
+            color: white;
+            font-size: clamp(18px, 5.5vw, 22px);
+            font-weight: bold;
+            min-width: 45px;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        }
+
+        /* Адаптация для ландшафтной ориентации */
+        @media (orientation: landscape) {
+            .dice-field {
+                grid-template-columns: repeat(3, 1fr);
+                grid-template-rows: repeat(2, 1fr);
+                padding: 10vh 12vw 10vh 12vw;
+                gap: 20px;
+            }
+            
+            .cup-container {
+                top: 5%;
+            }
+        }
+
+        /* Для планшетов */
+        @media (min-width: 768px) and (orientation: portrait) {
+            .dice-field {
+                padding: 20vh 10vw 20vh 10vw;
+            }
+        }
+
+        /* Для маленьких экранов */
+        @media (max-height: 600px) {
+            .dice-field {
+                padding: 12vh 5vw 12vh 5vw;
+            }
+            
+            .cup-container {
+                top: 3%;
+            }
+        }
+
+        /* Инструкция внизу */
+        .hint {
+            position: fixed;
+            bottom: clamp(70px, 12vh, 90px);
+            left: 0;
+            width: 100%;
+            text-align: center;
+            color: rgba(255,255,255,0.4);
+            font-size: 12px;
+            z-index: 25;
+            pointer-events: none;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="table"></div>
+
+    <div class="cup-container" id="cup">
+        <div class="cup"></div>
+    </div>
+
+    <div class="dice-field" id="field"></div>
+
+    <div class="dice-controls">
+        <button class="control-btn" id="decreaseBtn" onclick="changeDiceCount(-1)">−</button>
+        <span class="count-display" id="diceCountDisplay">5</span>
+        <button class="control-btn" id="increaseBtn" onclick="changeDiceCount(1)">+</button>
+    </div>
+
+    <div class="info-panel" id="infoPanel">
+        <div>Сумма</div>
+        <div class="total" id="totalSum">0</div>
+    </div>
+
+    <div class="hint">нажми +/– для изменения количества</div>
+
+    <button onclick="shakeAndThrow()" id="throwBtn">🎲 БРОСИТЬ 🎲</button>
+
+    <script>
+        const field = document.getElementById('field');
+        const cup = document.getElementById('cup');
+        const totalSumElem = document.getElementById('totalSum');
+        const diceCountDisplay = document.getElementById('diceCountDisplay');
+        const throwBtn = document.getElementById('throwBtn');
+        const decreaseBtn = document.getElementById('decreaseBtn');
+        const increaseBtn = document.getElementById('increaseBtn');
+        
+        let diceCount = 5;
+        let isAnimating = false;
+        let currentValues = [];
+
+        // Позиции в сетке для кубиков
+        const gridPositions = [
+            { gridArea: '1 / 1' }, // Верхний левый
+            { gridArea: '1 / 2' }, // Верхний правый
+            { gridArea: '2 / 1' }, // Центр левый
+            { gridArea: '2 / 2' }, // Центр правый
+            { gridArea: '3 / 1' }, // Нижний левый
+            { gridArea: '3 / 2' }, // Нижний правый
+        ];
+
+        const landscapePositions = [
+            { gridArea: '1 / 1' },
+            { gridArea: '1 / 2' },
+            { gridArea: '1 / 3' },
+            { gridArea: '2 / 1' },
+            { gridArea: '2 / 2' },
+            { gridArea: '2 / 3' },
+        ];
+
+        function getGridPosition(index, isLandscape) {
+            const positions = isLandscape ? landscapePositions : gridPositions;
+            return positions[index % positions.length];
+        }
+
+        // Создаем кубики
+        function createDices(count) {
+            field.innerHTML = '';
+            currentValues = [];
+            
+            const isLandscape = window.matchMedia("(orientation: landscape)").matches;
+            
+            for(let i = 0; i < count; i++) {
+                const wrap = document.createElement('div');
+                wrap.className = 'dice-wrapper';
+                wrap.id = `dice-${i}`;
+                
+                // Применяем позицию в сетке
+                const pos = getGridPosition(i, isLandscape);
+                wrap.style.gridArea = pos.gridArea;
+                
+                const dice = document.createElement('div');
+                dice.className = 'dice';
+                
+                // Создаем грани
+                const faceValues = [1, 6, 3, 4, 2, 5];
+                faceValues.forEach(v => {
+                    const face = document.createElement('div');
+                    face.className = `face f${v}`;
+                    face.setAttribute('data-val', v);
+                    for(let d = 0; d < v; d++) {
+                        const dot = document.createElement('div');
+                        dot.className = 'dot';
+                        face.appendChild(dot);
+                    }
+                    dice.appendChild(face);
+                });
+                
+                wrap.appendChild(dice);
+                field.appendChild(wrap);
+                currentValues.push(1);
+            }
+            
+            diceCountDisplay.textContent = count;
+            updateControls();
+            updateSum();
+        }
+
+        // Обновление состояния кнопок
+        function updateControls() {
+            decreaseBtn.disabled = diceCount <= 1 || isAnimating;
+            increaseBtn.disabled = diceCount >= 6 || isAnimating;
+        }
+
+        // Изменение количества кубиков
+        window.changeDiceCount = (delta) => {
+            const newCount = diceCount + delta;
+            if (newCount >= 1 && newCount <= 6 && !isAnimating) {
+                diceCount = newCount;
+                createDices(diceCount);
+            }
+        };
+
+        // Обновление суммы
+        function updateSum() {
+            const sum = currentValues.reduce((a, b) => a + b, 0);
+            totalSumElem.textContent = sum;
+        }
+
+        // Генерация случайного значения кубика
+        function animateDiceValue(diceElement, index) {
+            const fastRotations = Math.floor(Math.random() * 3) + 2;
+            const fastDuration = 200 + Math.random() * 100;
+            
+            const rx = (Math.floor(Math.random() * 6) + fastRotations) * 360;
+            const ry = (Math.floor(Math.random() * 6) + fastRotations) * 360;
+            const rz = (Math.floor(Math.random() * 6) + fastRotations) * 360;
+            
+            diceElement.style.transition = `transform ${fastDuration}ms linear`;
+            diceElement.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg) rotateZ(${rz}deg)`;
+            
+            setTimeout(() => {
+                const finalValue = Math.floor(Math.random() * 6) + 1;
+                currentValues[index] = finalValue;
+                
+                // Поворачиваем кубик нужной гранью
+                let finalX, finalY, finalZ;
+                switch(finalValue) {
+                    case 1: finalX = 0; finalY = 0; finalZ = 0; break;
+                    case 2: finalX = 0; finalY = -90; finalZ = 0; break;
+                    case 3: finalX = 0; finalY = -90; finalZ = 0; break;
+                    case 4: finalX = 0; finalY = 90; finalZ = 0; break;
+                    case 5: finalX = 90; finalY = 0; finalZ = 0; break;
+                    case 6: finalX = -90; finalY = 0; finalZ = 0; break;
+                }
+                
+                diceElement.style.transition = `transform 0.5s ease-out`;
+                diceElement.style.transform = `rotateX(${finalX}deg) rotateY(${finalY}deg) rotateZ(${finalZ}deg)`;
+                
+                updateSum();
+            }, fastDuration);
+        }
+
+        async function shakeAndThrow() {
+            if (isAnimating) return;
+            isAnimating = true;
+            
+            throwBtn.disabled = true;
+            updateControls();
+            
+            // Скрываем кубики в стакане
+            const wraps = document.querySelectorAll('.dice-wrapper');
+            wraps.forEach(w => {
+                w.style.transition = 'none';
+                w.style.opacity = '0';
+                w.style.transform = 'translate(0, -250px) scale(0.3)';
+            });
+            
+            // Небольшая задержка для применения стилей
+            await new Promise(resolve => setTimeout(resolve, 50));
+            
+            // Тряска стакана
+            cup.classList.add('shaking');
+            
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Наклон стакана
+            cup.classList.remove('shaking');
+            cup.style.transform = 'translateX(-50%) translateY(-20px) rotateX(-20deg) rotateZ(-110deg)';
+            
+            await new Promise(resolve => setTimeout(resolve, 200));
+            
+            // Вылет кубиков
+            const dices = document.querySelectorAll('.dice');
+            
+            wraps.forEach((wrap, i) => {
+                setTimeout(() => {
+                    wrap.style.transition = 'all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)';
+                    wrap.style.opacity = '1';
+                    wrap.style.transform = 'translate(0, 0) scale(1)';
+                    
+                    // Анимация вращения
+                    animateDiceValue(dices[i], i);
+                }, i * 120);
+            });
+            
+            // Возврат стакана
+            setTimeout(() => {
+                cup.style.transform = 'translateX(-50%) translateY(0) rotateX(0deg) rotateZ(0deg)';
+            }, 800);
+            
+            // Активация кнопок
+            setTimeout(() => {
+                throwBtn.disabled = false;
+                isAnimating = false;
+                updateControls();
+            }, 2000);
+        }
+
+        // Обработка изменения ориентации
+        window.addEventListener('resize', () => {
+            if (!isAnimating) {
+                const isLandscape = window.matchMedia("(orientation: landscape)").matches;
+                const wraps = document.querySelectorAll('.dice-wrapper');
+                
+                wraps.forEach((wrap, i) => {
+                    const pos = getGridPosition(i, isLandscape);
+                    wrap.style.gridArea = pos.gridArea;
+                });
+            }
+        });
+
+        // Инициализация
+        createDices(diceCount);
+
+        // Защита от скролла
+        document.addEventListener('touchmove', (e) => {
+            if (e.target.closest('.dice-wrapper')) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+    </script>
+</body>
+</html>

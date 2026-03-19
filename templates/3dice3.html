@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Бросок из стакана 3D</title>
+    <style>
+        :root {
+            --dice-size: clamp(45px, 12vw, 70px);
+            --cup-width: clamp(80px, 20vw, 120px);
+            --cup-height: clamp(120px, 28vw, 160px);
+            --table-color: #1a472a;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: radial-gradient(ellipse at center, #2c3e50 0%, #000 100%);
+            perspective: 2000px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: pan-y pinch-zoom;
+            position: fixed;
+            width: 100%;
+            height: 100%;
+        }
+
+        .table {
+            position: absolute;
+            width: 300%;
+            height: 300%;
+            background:
+                radial-gradient(circle at 30% 30%, var(--table-color) 0%, #0d2b1a 100%),
+                repeating-linear-gradient(
+                    0deg,
+                    transparent,
+                    transparent 2px,
+                    rgba(255,255,255,0.02) 2px,
+                    rgba(255,255,255,0.02) 4px
+                );
+            transform: rotateX(75deg) translateZ(-300px) translateX(-25%) translateY(-25%);
+            z-index: -1;
+            box-shadow:
+                inset 0 0 150px rgba(0, 0, 0, 0.8),
+                0 0 100px rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+        }
+
+        .cup-container {
+            position: absolute;
+            top: 8%;
+            left: 50%;
+            transform: translateX(-50%);
+            transform-style: preserve-3d;
+            transition: all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+            z-index: 10;
+            filter: drop-shadow(0 10px 20px rgba(0,0,0,0.5));
+        }
+
+        .cup {
+            width: var(--cup-width);
+            height: var(--cup-height);
+            background: linear-gradient(to bottom,
+                rgba(60, 60, 60, 0.95) 0%,
+                rgba(40, 40, 40, 0.95) 100%);
+            border: 4px solid #666;
+            border-top: none;
+            border-radius: 0 0 25px 25px;
+            position: relative;
+            transform: rotateX(-15deg);
+            box-shadow:
+                inset 0 -10px 20px rgba(0,0,0,0.5),
+                0 15px 30px rgba(0,0,0,0.4);
+            overflow: hidden;
+        }
+
+        .cup::before {
+            content: '';
+            position: absolute;
+            top: -20px;
+            left: -4px;
+            width: calc(100% + 8px);
+            height: 40px;
+            background: linear-gradient(to bottom, #555, #444);
+            border-radius: 50%;
+            border: 2px solid #777;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        .cup::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg,
+                transparent 0%,
+                rgba(255,255,255,0.1) 50%,
+                transparent 100%);
+            pointer-events: none;
+        }
+
+        .dice-field {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 5;
+            transform-style: preserve-3d;
+        }
+
+        .dice-wrapper {
+            position: absolute;
+            width: var(--dice-size);
+            height: var(--dice-size);
+            transition: all 0.1s linear;
+            filter: drop-shadow(0 5px 10px rgba(0,0,0,0.3));
+            pointer-events: none;
+            will-change: transform, left, top;
+            transform-style: preserve-3d;
+        }
+
+        .dice {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transform-style: preserve-3d;
+            transition: transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+        }
+
+        .face {
+            position: absolute;
+            width: var(--dice-size);
+            height: var(--dice-size);
+            background: linear-gradient(135deg, #f8f8f8, #e8e8e8);
+            border: 2px solid #ccc;
+            border-radius: 8px;
+            display: grid;
+            grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+            padding: 6px;
+            backface-visibility: hidden;
+            box-shadow:
+                inset 2px 2px 5px rgba(255,255,255,0.6),
+                inset -2px -2px 5px rgba(0,0,0,0.1);
+            transform-style: preserve-3d;
+        }
+
+        .dot {
+            width: clamp(6px, 2vw, 10px);
+            height: clamp(6px, 2vw, 10px);
+            background: #222;
+            border-radius: 50%;
+            align-self: center;
+            justify-self: center;
+            box-shadow: inset 0 0 3px rgba(0,0,0,0.3);
+        }
+
+        .f1 { transform: rotateY(0deg) translateZ(calc(var(--dice-size)/2)); }
+        .f6 { transform: rotateY(180deg) translateZ(calc(var(--dice-size)/2)); }
+        .f3 { transform: rotateY(90deg) translateZ(calc(var(--dice-size)/2)); }
+        .f4 { transform: rotateY(-90deg) translateZ(calc(var(--dice-size)/2)); }
+        .f2 { transform: rotateX(90deg) translateZ(calc(var(--dice-size)/2)); }
+        .f5 { transform: rotateX(-90deg) translateZ(calc(var(--dice-size)/2)); }
+
+        .face[data-val="1"] .dot:nth-child(1) { grid-area: 2/2; }
+        .face[data-val="2"] .dot:nth-child(1) { grid-area: 1/1; }
+        .face[data-val="2"] .dot:nth-child(2) { grid-area: 3/3; }
+        .face[data-val="3"] .dot:nth-child(1) { grid-area: 1/1; }
+        .face[data-val="3"] .dot:nth-child(2) { grid-area: 2/2; }
+        .face[data-val="3"] .dot:nth-child(3) { grid-area: 3/3; }
+        .face[data-val="4"] .dot:nth-child(1) { grid-area: 1/1; }
+        .face[data-val="4"] .dot:nth-child(2) { grid-area: 1/3; }
+        .face[data-val="4"] .dot:nth-child(3) { grid-area: 3/1; }
+        .face[data-val="4"] .dot:nth-child(4) { grid-area: 3/3; }
+        .face[data-val="5"] .dot:nth-child(1) { grid-area: 1/1; }
+        .face[data-val="5"] .dot:nth-child(2) { grid-area: 1/3; }
+        .face[data-val="5"] .dot:nth-child(3) { grid-area: 2/2; }
+        .face[data-val="5"] .dot:nth-child(4) { grid-area: 3/1; }
+        .face[data-val="5"] .dot:nth-child(5) { grid-area: 3/3; }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(-50%) translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-50%) translateX(-5px); }
+            20%, 40%, 60%, 80% { transform: translateX(-50%) translateX(5px); }
+        }
+
+        .shaking {
+            animation: shake 0.5s ease-in-out infinite;
+        }
+
+        .throw-controls {
+            position: fixed;
+            bottom: clamp(15px, 4vh, 25px);
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            z-index: 30;
+            width: 90%;
+            max-width: 300px;
+        }
+
+        .power-indicator {
+            width: 100%;
+            height: 8px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 4px;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .power-bar {
+            height: 100%;
+            width: 50%;
+            background: linear-gradient(to right, #f1c40f, #e67e22);
+            transition: width 0.1s ease;
+            border-radius: 4px;
+        }
+
+        .power-text {
+            color: white;
+            font-size: 14px;
+            text-shadow: 0 1px 2px black;
+            margin-bottom: 5px;
+        }
+
+        button {
+            width: 100%;
+            padding: clamp(12px, 3.5vw, 16px) clamp(25px, 8vw, 40px);
+            background: linear-gradient(to bottom, #f1c40f, #e67e22);
+            color: #2c3e50;
+            border: none;
+            border-radius: 50px;
+            font-weight: bold;
+            font-size: clamp(16px, 4.5vw, 20px);
+            cursor: pointer;
+            box-shadow: 0 6px 0 #bc9c0d, 0 10px 25px rgba(0,0,0,0.4);
+            transition: all 0.1s ease;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            white-space: nowrap;
+            -webkit-appearance: none;
+            border: 2px solid rgba(255,255,255,0.2);
+        }
+
+        button:active {
+            transform: translateY(2px);
+            box-shadow: 0 2px 0 #bc9c0d, 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        button:disabled {
+            opacity: 0.7;
+            transform: translateY(2px);
+            box-shadow: 0 2px 0 #bc9c0d;
+        }
+
+        .info-panel {
+            position: fixed;
+            top: clamp(10px, 3vh, 15px);
+            right: clamp(10px, 3vw, 15px);
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: clamp(8px, 2.5vw, 12px) clamp(12px, 3.5vw, 18px);
+            border-radius: 12px;
+            font-size: clamp(14px, 4vw, 16px);
+            z-index: 40;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.15);
+            pointer-events: none;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            min-width: 100px;
+            text-align: center;
+        }
+
+        .total {
+            font-size: clamp(22px, 6vw, 28px);
+            font-weight: bold;
+            color: #f1c40f;
+            margin-top: 3px;
+            text-shadow: 0 2px 5px rgba(241, 196, 15, 0.3);
+        }
+
+        .dice-controls {
+            position: fixed;
+            top: clamp(10px, 3vh, 15px);
+            left: clamp(10px, 3vw, 15px);
+            display: flex;
+            gap: 8px;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 6px 10px;
+            border-radius: 40px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.15);
+            z-index: 40;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+
+        .control-btn {
+            width: clamp(40px, 11vw, 48px);
+            height: clamp(40px, 11vw, 48px);
+            border-radius: 50%;
+            background: linear-gradient(to bottom, #f1c40f, #e67e22);
+            border: none;
+            color: #2c3e50;
+            font-size: clamp(24px, 7vw, 28px);
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            -webkit-appearance: none;
+            box-shadow: 0 4px 0 #bc9c0d;
+            transition: all 0.1s ease;
+            border: 2px solid rgba(255,255,255,0.2);
+        }
+
+        .control-btn:active {
+            transform: translateY(2px);
+            box-shadow: 0 0 0 #bc9c0d;
+        }
+
+        .control-btn:disabled {
+            opacity: 0.5;
+            transform: translateY(2px);
+            box-shadow: 0 0 0 #bc9c0d;
+            pointer-events: none;
+        }
+
+        .count-display {
+            color: white;
+            font-size: clamp(18px, 5.5vw, 22px);
+            font-weight: bold;
+            min-width: 45px;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        }
+
+        .hint {
+            position: fixed;
+            bottom: clamp(70px, 12vh, 90px);
+            left: 0;
+            width: 100%;
+            text-align: center;
+            color: rgba(255,255,255,0.4);
+            font-size: 12px;
+            z-index: 25;
+            pointer-events: none;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="table"></div>
+
+    <div class="cup-container" id="cup">
+        <div class="cup"></div>
+    </div>
+
+    <div class="dice-field" id="field"></div>
+
+    <div class="dice-controls">
+        <button class="control-btn" id="decreaseBtn" onclick="changeDiceCount(-1)">−</button>
+        <span class="count-display" id="diceCountDisplay">5</span>
+        <button class="control-btn" id="increaseBtn" onclick="changeDiceCount(1)">+</button>
+    </div>
+
+    <div class="info-panel" id="infoPanel">
+        <div>Сумма</div>
+        <div class="total" id="totalSum">0</div>
+    </div>
+
+    <div class="hint">нажми и удерживай кнопку для силы броска</div>
+
+    <div class="throw-controls">
+        <div class="power-text" id="powerText">Сила: 50%</div>
+        <div class="power-indicator">
+            <div class="power-bar" id="powerBar" style="width: 50%"></div>
+        </div>
+        <button onmousedown="startCharging()" onmouseup="releaseThrow()" ontouchstart="startCharging()" ontouchend="releaseThrow()" id="throwBtn">🎲 БРОСИТЬ 🎲</button>
+    </div>
+
+    <script>
+        const field = document.getElementById('field');
+        const cup = document.getElementById('cup');
+        const totalSumElem = document.getElementById('totalSum');
+        const diceCountDisplay = document.getElementById('diceCountDisplay');
+        const throwBtn = document.getElementById('throwBtn');
+        const powerBar = document.getElementById('powerBar');
+        const powerText = document.getElementById('powerText');
+        const decreaseBtn = document.getElementById('decreaseBtn');
+        const increaseBtn = document.getElementById('increaseBtn');
+
+        let diceCount = 5;
+        let isAnimating = false;
+        let currentValues = [];
+
+        let dicePhysics = [];
+        let animationFrame = null;
+        let power = 0.5;
+        let charging = false;
+        let chargeInterval = null;
+
+        const tableBounds = {
+            minX: window.innerWidth * 0.2,
+            maxX: window.innerWidth * 0.8,
+            minY: window.innerHeight * 0.3,
+            maxY: window.innerHeight * 0.7
+        };
+
+       /* class DicePhysics {
+            constructor(element, index) {
+                this.element = element;
+                this.index = index;
+                this.x = window.innerWidth / 2;
+                this.y = window.innerHeight * 0.2;
+                this.vx = 0;
+                this.vy = 0;
+                this.radius = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dice-size').replace('px', '')) / 2 || 25;
+                this.mass = 1;
+                this.bounce = 0.6;
+                this.friction = 0.9;
+                this.rotation = 0;
+                this.rotationSpeed = 0;
+                // Сохраняем текущий поворот кубика
+                this.diceRotation = { x: 0, y: 0, z: 0 };
+            }
+
+            update() {
+                this.vx *= this.friction;
+                this.vy *= this.friction;
+
+                this.x += this.vx;
+                this.y += this.vy;
+
+                this.rotation += this.rotationSpeed;
+                this.rotationSpeed *= 0.98;
+
+                if (this.x - this.radius < tableBounds.minX) {
+                    this.x = tableBounds.minX + this.radius;
+                    this.vx = -this.vx * this.bounce;
+                    this.rotationSpeed += (Math.random() - 0.5) * 0.2;
+                }
+                if (this.x + this.radius > tableBounds.maxX) {
+                    this.x = tableBounds.maxX - this.radius;
+                    this.vx = -this.vx * this.bounce;
+                    this.rotationSpeed += (Math.random() - 0.5) * 0.2;
+                }
+                if (this.y - this.radius < tableBounds.minY) {
+                    this.y = tableBounds.minY + this.radius;
+                    this.vy = -this.vy * this.bounce;
+                    this.rotationSpeed += (Math.random() - 0.5) * 0.2;
+                }
+                if (this.y + this.radius > tableBounds.maxY) {
+                    this.y = tableBounds.maxY - this.radius;
+                    this.vy = -this.vy * this.bounce;
+                    this.rotationSpeed += (Math.random() - 0.5) * 0.2;
+                }
+
+                // Применяем позицию и вращение wrapper'а
+                this.element.style.left = (this.x - this.radius) + 'px';
+                this.element.style.top = (this.y - this.radius) + 'px';
+                this.element.style.transform = `rotate(${this.rotation}deg)`;
+            }
+
+            checkCollision(other) {
+                const dx = this.x - other.x;
+                const dy = this.y - other.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const minDistance = this.radius + other.radius;
+
+                if (distance < minDistance) {
+                    const nx = dx / distance;
+                    const ny = dy / distance;
+
+                    const dvx = this.vx - other.vx;
+                    const dvy = this.vy - other.vy;
+
+                    const vn = dvx * nx + dvy * ny;
+
+                    if (vn > 0) return;
+
+                    const imp = (2 * vn) / (this.mass + other.mass);
+
+                    this.vx -= imp * other.mass * nx * this.bounce;
+                    this.vy -= imp * other.mass * ny * this.bounce;
+                    other.vx += imp * this.mass * nx * this.bounce;
+                    other.vy += imp * this.mass * ny * this.bounce;
+
+                    const collisionForce = Math.abs(vn) * 0.5;
+                    this.rotationSpeed += (Math.random() - 0.5) * collisionForce;
+                    other.rotationSpeed += (Math.random() - 0.5) * collisionForce;
+
+                    const overlap = minDistance - distance;
+                    const moveX = nx * overlap * 0.5;
+                    const moveY = ny * overlap * 0.5;
+
+                    this.x += moveX;
+                    this.y += moveY;
+                    other.x -= moveX;
+                    other.y -= moveY;
+
+                    return true;
+                }
+                return false;
+            }
+*/
+class DicePhysics {
+    constructor(element, index) {
+        this.element = element;
+        this.index = index;
+        this.x = window.innerWidth / 2;
+        this.y = window.innerHeight * 0.2;
+        this.vx = 0;
+        this.vy = 0;
+        this.radius = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dice-size').replace('px', '')) / 2 || 25;
+        this.mass = 1;
+        this.bounce = 0.5; // Уменьшил упругость с 0.7 до 0.5
+        this.friction = 0.90; // УВЕЛИЧИЛ трение с 0.98 до 0.85 (сильнее торможение)
+        this.rotation = 0;
+        this.rotationSpeed = 0;
+        // Сохраняем текущий поворот кубика
+        this.diceRotation = { x: 0, y: 0, z: 0 };
+    }
+
+    update() {
+        // Сильное трение - быстро останавливает кубики
+        this.vx *= this.friction;
+        this.vy *= this.friction;
+
+        // Если скорость очень маленькая - останавливаем полностью
+        if (Math.abs(this.vx) < 0.1) this.vx = 0;
+        if (Math.abs(this.vy) < 0.1) this.vy = 0;
+
+        this.x += this.vx;
+        this.y += this.vy;
+
+        this.rotation += this.rotationSpeed;
+        this.rotationSpeed *= this.friction; // Вращение тоже замедляется
+
+        if (Math.abs(this.rotationSpeed) < 0.01) this.rotationSpeed = 0;
+
+        // Проверка границ стола
+        if (this.x - this.radius < tableBounds.minX) {
+            this.x = tableBounds.minX + this.radius;
+            this.vx = -this.vx * this.bounce;
+            // Сильно гасим скорость при ударе о стену
+            this.vy *= 0.9;
+            this.rotationSpeed += (Math.random() - 0.5) * 0.1;
+        }
+        if (this.x + this.radius > tableBounds.maxX) {
+            this.x = tableBounds.maxX - this.radius;
+            this.vx = -this.vx * this.bounce;
+            this.vy *= 0.9;
+            this.rotationSpeed += (Math.random() - 0.5) * 0.1;
+        }
+        if (this.y - this.radius < tableBounds.minY) {
+            this.y = tableBounds.minY + this.radius;
+            this.vy = -this.vy * this.bounce;
+            this.vx *= 0.9;
+            this.rotationSpeed += (Math.random() - 0.5) * 0.1;
+        }
+        if (this.y + this.radius > tableBounds.maxY) {
+            this.y = tableBounds.maxY - this.radius;
+            this.vy = -this.vy * this.bounce;
+            this.vx *= 0.9;
+            this.rotationSpeed += (Math.random() - 0.5) * 0.1;
+        }
+
+        // Применяем позицию и вращение wrapper'а
+        this.element.style.left = (this.x - this.radius) + 'px';
+        this.element.style.top = (this.y - this.radius) + 'px';
+        this.element.style.transform = `rotate(${this.rotation}deg)`;
+    }
+    checkCollision(other) {
+            const dx = this.x - other.x;
+            const dy = this.y - other.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const minDistance = this.radius + other.radius;
+
+            if (distance < minDistance) {
+                const nx = dx / distance;
+                const ny = dy / distance;
+
+                const dvx = this.vx - other.vx;
+                const dvy = this.vy - other.vy;
+
+                const vn = dvx * nx + dvy * ny;
+
+                if (vn > 0) return;
+
+                // Уменьшаем силу столкновения
+                const imp = (1.2 * vn) / (this.mass + other.mass); // Уменьшил с 2 до 1.2
+
+                this.vx -= imp * other.mass * nx * this.bounce * 0.8; // Добавил доп. затухание
+                this.vy -= imp * other.mass * ny * this.bounce * 0.8;
+                other.vx += imp * this.mass * nx * this.bounce * 0.8;
+                other.vy += imp * this.mass * ny * this.bounce * 0.8;
+
+                // Уменьшаем вращение от столкновений
+                const collisionForce = Math.abs(vn) * 0.3; // Уменьшил с 0.5 до 0.3
+                this.rotationSpeed += (Math.random() - 0.5) * collisionForce;
+                other.rotationSpeed += (Math.random() - 0.5) * collisionForce;
+
+                const overlap = minDistance - distance;
+                const moveX = nx * overlap * 0.5;
+                const moveY = ny * overlap * 0.5;
+
+                this.x += moveX;
+                this.y += moveY;
+                other.x -= moveX;
+                other.y -= moveY;
+
+                return true;
+            }
+            return false;
+        }
+            // Устанавливаем финальный поворот кубика с сохранением 3D
+            setFinalRotation(value) {
+                const dice = this.element.querySelector('.dice');
+
+                // Вычисляем углы для нужной грани
+                let targetX, targetY, targetZ;
+                switch(value) {
+                    case 1: targetX = 0; targetY = 0; targetZ = 0; break;
+                    case 2: targetX = 0; targetY = -90; targetZ = 0; break;
+                    case 3: targetX = 0; targetY = -90; targetZ = 0; break;
+                    case 4: targetX = 0; targetY = 90; targetZ = 0; break;
+                    case 5: targetX = 90; targetY = 0; targetZ = 0; break;
+                    case 6: targetX = -90; targetY = 0; targetZ = 0; break;
+                }
+
+                // Добавляем небольшой случайный наклон для естественности
+                targetX += (Math.random() - 0.5) * 10;
+                targetY += (Math.random() - 0.5) * 10;
+
+                this.diceRotation = { x: targetX, y: targetY, z: targetZ };
+
+                // Применяем поворот с плавной анимацией
+                dice.style.transition = 'transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.2)';
+                dice.style.transform = `rotateX(${targetX}deg) rotateY(${targetY}deg) rotateZ(${targetZ}deg)`;
+            }
+
+            // Устанавливаем случайное вращение во время броска
+            setRandomRotation() {
+                const dice = this.element.querySelector('.dice');
+
+                // Генерируем случайные углы
+                const rx = Math.floor(Math.random() * 360);
+                const ry = Math.floor(Math.random() * 360);
+                const rz = Math.floor(Math.random() * 360);
+
+                this.diceRotation = { x: rx, y: ry, z: rz };
+
+                dice.style.transition = 'transform 1s linear';
+                dice.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg) rotateZ(${rz}deg)`;
+            }
+        }
+
+        function startCharging() {
+            if (isAnimating) return;
+            charging = true;
+            power = 0.3;
+
+            if (chargeInterval) clearInterval(chargeInterval);
+            chargeInterval = setInterval(() => {
+                if (charging && power < 1) {
+                    power += 0.02;
+                    if (power > 1) power = 1;
+                    updatePowerDisplay();
+                }
+            }, 50);
+        }
+
+        function releaseThrow() {
+            if (charging) {
+                charging = false;
+                if (chargeInterval) {
+                    clearInterval(chargeInterval);
+                    chargeInterval = null;
+                }
+                shakeAndThrow();
+            }
+        }
+
+        function updatePowerDisplay() {
+            const percent = Math.round(power * 100);
+            powerBar.style.width = (power * 100) + '%';
+            powerText.textContent = `Сила: ${percent}%`;
+        }
+
+        function createDices(count) {
+            field.innerHTML = '';
+            currentValues = [];
+            dicePhysics = [];
+
+            if (animationFrame) {
+                cancelAnimationFrame(animationFrame);
+                animationFrame = null;
+            }
+
+            for(let i = 0; i < count; i++) {
+                const wrap = document.createElement('div');
+                wrap.className = 'dice-wrapper';
+                wrap.id = `dice-${i}`;
+
+                const dice = document.createElement('div');
+                dice.className = 'dice';
+
+                const faceValues = [1, 6, 3, 4, 2, 5];
+                faceValues.forEach(v => {
+                    const face = document.createElement('div');
+                    face.className = `face f${v}`;
+                    face.setAttribute('data-val', v);
+                    for(let d = 0; d < v; d++) {
+                        const dot = document.createElement('div');
+                        dot.className = 'dot';
+                        face.appendChild(dot);
+                    }
+                    dice.appendChild(face);
+                });
+
+                wrap.appendChild(dice);
+                field.appendChild(wrap);
+
+                const physics = new DicePhysics(wrap, i);
+                physics.x = window.innerWidth / 2 + (Math.random() - 0.5) * 20;
+                physics.y = window.innerHeight * 0.2 + (Math.random() - 0.5) * 20;
+                dicePhysics.push(physics);
+
+                currentValues.push(1);
+            }
+
+            diceCountDisplay.textContent = count;
+            updateControls();
+            updateSum();
+            updateDicePositions();
+        }
+
+        function updateDicePositions() {
+            dicePhysics.forEach(p => {
+                p.element.style.left = (p.x - p.radius) + 'px';
+                p.element.style.top = (p.y - p.radius) + 'px';
+            });
+        }
+
+        function physicsUpdate() {
+            if (!dicePhysics.length) return;
+
+            dicePhysics.forEach(dice => dice.update());
+
+            for (let i = 0; i < dicePhysics.length; i++) {
+                for (let j = i + 1; j < dicePhysics.length; j++) {
+                    dicePhysics[i].checkCollision(dicePhysics[j]);
+                }
+            }
+
+            animationFrame = requestAnimationFrame(physicsUpdate);
+        }
+
+        async function shakeAndThrow() {
+            if (isAnimating) return;
+            isAnimating = true;
+
+            throwBtn.disabled = true;
+            updateControls();
+
+            if (animationFrame) {
+                cancelAnimationFrame(animationFrame);
+                animationFrame = null;
+            }
+
+            // Скрываем кубики в стакане
+            dicePhysics.forEach((p, i) => {
+                p.element.style.transition = 'none';
+                p.element.style.opacity = '0';
+                p.x = window.innerWidth / 2;
+                p.y = window.innerHeight * 0.2;
+                p.vx = 0;
+                p.vy = 0;
+                p.rotation = 0;
+                p.rotationSpeed = 0;
+            });
+
+            updateDicePositions();
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            cup.classList.add('shaking');
+
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            cup.classList.remove('shaking');
+            cup.style.transform = 'translateX(-50%) translateY(-20px) rotateX(-20deg) rotateZ(-110deg)';
+
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            const baseSpeed = 5 + power * 8; // Уменьшил с 8 + power*12 до 5 + power*8
+            const spread = 0.4 + power * 0.6; // Уменьшил разброс
+
+            // Бросок - задаем начальные скорости
+            dicePhysics.forEach((p, i) => {
+                const angle = (Math.random() - 0.5) * spread * Math.PI;
+                const speed = baseSpeed * (0.7 + Math.random() * 0.4); // Уменьшил множители
+
+                p.vx = Math.sin(angle) * speed * 2.5; // Уменьшил с 3 до 2.5
+                p.vy = -Math.cos(angle) * speed * 2.5;
+                p.rotationSpeed = (Math.random() - 0.5) * 0.2 * power * 8; // Уменьшил вращение
+
+                p.element.style.transition = 'opacity 0.3s ease';
+                p.element.style.opacity = '1';
+
+                // Устанавливаем случайное вращение для кубика
+                p.setRandomRotation();
+            });
+
+            // Запускаем физику
+            physicsUpdate();
+
+            // Через некоторое время устанавливаем финальные значения
+            setTimeout(() => {
+                dicePhysics.forEach((p, i) => {
+                    const finalValue = Math.floor(Math.random() * 6) + 1;
+                    currentValues[i] = finalValue;
+
+                    // Устанавливаем финальный поворот с сохранением 3D
+                    p.setFinalRotation(finalValue);
+                });
+
+                updateSum();
+            }, 500);
+
+            // Возврат стакана
+            setTimeout(() => {
+                cup.style.transform = 'translateX(-50%) translateY(0) rotateX(0deg) rotateZ(0deg)';
+            }, 500);
+
+            // Активация кнопок
+            setTimeout(() => {
+                throwBtn.disabled = false;
+                isAnimating = false;
+                updateControls();
+            }, 1000);
+        }
+
+        function updateControls() {
+            decreaseBtn.disabled = diceCount <= 1 || isAnimating;
+            increaseBtn.disabled = diceCount >= 6 || isAnimating;
+        }
+
+        window.changeDiceCount = (delta) => {
+            const newCount = diceCount + delta;
+            if (newCount >= 1 && newCount <= 6 && !isAnimating) {
+                diceCount = newCount;
+                createDices(diceCount);
+            }
+        };
+
+        function updateSum() {
+            const sum = currentValues.reduce((a, b) => a + b, 0);
+            totalSumElem.textContent = sum;
+        }
+
+        window.addEventListener('resize', () => {
+            tableBounds.minX = window.innerWidth * 0.15;
+            tableBounds.maxX = window.innerWidth * 0.85;
+            tableBounds.minY = window.innerHeight * 0.25;
+            tableBounds.maxY = window.innerHeight * 0.75;
+
+            if (!isAnimating) {
+                dicePhysics.forEach(p => {
+                    p.x = Math.max(tableBounds.minX + p.radius, Math.min(tableBounds.maxX - p.radius, p.x));
+                    p.y = Math.max(tableBounds.minY + p.radius, Math.min(tableBounds.maxY - p.radius, p.y));
+                });
+                updateDicePositions();
+            }
+        });
+
+        createDices(diceCount);
+        updatePowerDisplay();
+
+        document.addEventListener('touchmove', (e) => {
+            if (e.target.closest('.dice-wrapper') || e.target.closest('button')) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+    </script>
+</body>
+</html>

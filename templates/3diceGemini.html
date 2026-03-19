@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>3D Бросок: Плавное приземление</title>
+    <style>
+        :root { --dice-size: 50px; }
+
+        body {
+            margin: 0; overflow: hidden;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            min-height: 100vh;
+            background: radial-gradient(circle, #2c3e50, #000);
+            perspective: 2000px;
+        }
+
+        .table {
+            position: absolute; width: 2500px; height: 2500px;
+            background: radial-gradient(circle, #1a472a 0%, #0d2b1a 80%);
+            transform: rotateX(65deg) translateZ(-200px);
+            z-index: -1;
+            box-shadow: inset 0 0 300px #000;
+        }
+
+        .cup-container {
+            position: absolute; top: 15%;
+            transform-style: preserve-3d;
+            transition: transform 0.5s ease-in-out;
+            z-index: 10;
+        }
+        .cup {
+            width: 90px; height: 130px;
+            background: linear-gradient(to right, #333, #555, #333);
+            border-radius: 0 0 15px 15px;
+            transform: rotateX(-10deg);
+        }
+
+        .dice-field {
+            position: absolute; width: 100%; height: 100%;
+            transform-style: preserve-3d;
+        }
+
+        /* Контейнер для полета */
+        .dice-wrapper {
+            position: absolute;
+            left: 50%; top: 30%;
+            width: var(--dice-size); height: var(--dice-size);
+            margin-left: -25px;
+            transform-style: preserve-3d;
+            opacity: 0;
+            /* Изменили на более "тяжелое" приземление */
+            transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s;
+        }
+
+        /* Сам кубик (вращение) */
+        .dice {
+            width: 100%; height: 100%;
+            position: absolute;
+            transform-style: preserve-3d;
+            transition: transform 0.9s cubic-bezier(0.1, 0.1, 0.2, 1);
+        }
+
+        /* Грани */
+        .face {
+            position: absolute; width: var(--dice-size); height: var(--dice-size);
+            background: #fff; border: 1px solid #ccc; border-radius: 5px;
+            display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+            padding: 5px; box-sizing: border-box; backface-visibility: hidden;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.2);
+        }
+        .dot { width: 8px; height: 8px; background: #222; border-radius: 50%; align-self: center; justify-self: center; }
+
+        .f1 { transform: rotateY(0deg) translateZ(25px); }
+        .f6 { transform: rotateY(180deg) translateZ(25px); }
+        .f3 { transform: rotateY(90deg) translateZ(25px); }
+        .f4 { transform: rotateY(-90deg) translateZ(25px); }
+        .f2 { transform: rotateX(90deg) translateZ(25px); }
+        .f5 { transform: rotateX(-90deg) translateZ(25px); }
+
+        /* Позиции точек */
+        .face[data-val="1"] .dot:nth-child(1) { grid-area: 2/2; }
+        .face[data-val="2"] .dot:nth-child(1) { grid-area: 1/1; } .face[data-val="2"] .dot:nth-child(2) { grid-area: 3/3; }
+        .face[data-val="3"] .dot:nth-child(1) { grid-area: 1/1; } .face[data-val="3"] .dot:nth-child(2) { grid-area: 2/2; } .face[data-val="3"] .dot:nth-child(3) { grid-area: 3/3; }
+        .face[data-val="4"] .dot:nth-child(1) { grid-area: 1/1; } .face[data-val="4"] .dot:nth-child(2) { grid-area: 1/3; } .face[data-val="4"] .dot:nth-child(3) { grid-area: 3/1; } .face[data-val="4"] .dot:nth-child(4) { grid-area: 3/3; }
+        .face[data-val="5"] .dot:nth-child(1) { grid-area: 1/1; } .face[data-val="5"] .dot:nth-child(2) { grid-area: 1/3; } .face[data-val="5"] .dot:nth-child(3) { grid-area: 2/2; } .face[data-val="5"] .dot:nth-child(4) { grid-area: 3/1; } .face[data-val="5"] .dot:nth-child(5) { grid-area: 3/3; }
+        .face[data-val="6"] .dot:nth-child(1..6) { background: #000; } /* Упрощено для краткости */
+
+        button {
+            position: fixed; bottom: 30px; padding: 15px 40px;
+            background: #e67e22; color: white; border: none;
+            border-radius: 5px; font-weight: bold; cursor: pointer;
+            box-shadow: 0 4px #d35400; z-index: 100;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="table"></div>
+    <div class="cup-container" id="cup"><div class="cup"></div></div>
+    <div class="dice-field" id="field"></div>
+    <button onclick="throwDice()">БРОСИТЬ КУБИКИ</button>
+
+    <script>
+        const field = document.getElementById('field');
+        const cup = document.getElementById('cup');
+        const count = 5;
+
+        for(let i=0; i<count; i++) {
+            const wrap = document.createElement('div');
+            wrap.className = 'dice-wrapper';
+            wrap.innerHTML = `<div class="dice">
+                ${[1,6,3,4,2,5].map(v => `<div class="face f${v}" data-val="${v}">${'<span class="dot"></span>'.repeat(v)}</div>`).join('')}
+            </div>`;
+            field.appendChild(wrap);
+        }
+
+        function throwDice() {
+            cup.style.transform = 'translateY(10px) rotate(15deg)';
+
+            setTimeout(() => {
+                cup.style.transform = 'translateY(-60px) rotate(-130deg)';
+                const wraps = document.querySelectorAll('.dice-wrapper');
+
+                wraps.forEach((w, i) => {
+                    const dice = w.querySelector('.dice');
+
+                    w.style.transition = 'none';
+                    w.style.opacity = '0';
+                    w.style.transform = 'translate(0, 0) scale(0.2)';
+                    dice.style.transition = 'none';
+                    dice.style.transform = 'rotateX(0deg) rotateY(0deg) rotateZ(0deg)';
+
+                    setTimeout(() => {
+                        w.style.opacity = '1';
+                        w.style.transition = 'transform 0.9s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.1s';
+
+                        const tx = (Math.random() - 0.5) * 600;
+                        const ty = Math.random() * 400 + 100;
+                        // Добавляем легкий финальный наклон всей обертки для "кривого" приземления
+                        const finalSlant = (Math.random() - 0.5) * 20;
+                        w.style.transform = `translate(${tx}px, ${ty}px) scale(1) rotateZ(${finalSlant}deg)`;
+
+                        dice.style.transition = 'transform 0.9s cubic-bezier(0.1, 0.1, 0.2, 1)';
+                        const rx = (Math.floor(Math.random() * 12) + 6) * 90;
+                        const ry = (Math.floor(Math.random() * 12) + 6) * 90;
+                        const rz = (Math.floor(Math.random() * 12) + 6) * 90;
+                        dice.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg) rotateZ(${rz}deg)`;
+                    }, i * 60);
+                });
+            }, 300);
+
+            setTimeout(() => { cup.style.transform = 'translateY(0) rotate(0deg)'; }, 1000);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Dice Game</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+
+        .container {
+            text-align: center;
+            background: white;
+            padding: 2rem;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            max-width: 800px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 2rem;
+        }
+
+        /* Панель управления */
+        .controls {
+            background: #f5f5f5;
+            border-radius: 15px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .control-group {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .control-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .control-item label {
+            font-weight: bold;
+            color: #555;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .control-item input {
+            width: 100px;
+            padding: 0.5rem;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 1.1rem;
+            transition: border-color 0.3s;
+        }
+
+        .control-item input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .control-item input[type=number]::-webkit-inner-spin-button,
+        .control-item input[type=number]::-webkit-outer-spin-button {
+            opacity: 1;
+            height: 24px;
+        }
+
+        /* Контейнер для кубиков */
+        .dice-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 1rem;
+            margin: 2rem 0;
+            min-height: 120px;
+        }
+
+        .dice {
+            width: 80px;
+            height: 80px;
+            background: white;
+            border: 3px solid #333;
+            border-radius: 15px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2rem;
+            font-weight: bold;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            transition: all 0.1s ease;
+        }
+
+        .dice.rolling {
+            animation: roll 0.5s ease-in-out;
+        }
+
+        @keyframes roll {
+            0% { transform: rotate(0deg) scale(1); }
+            25% { transform: rotate(180deg) scale(1.2); }
+            50% { transform: rotate(360deg) scale(1); }
+            75% { transform: rotate(540deg) scale(1.2); }
+            100% { transform: rotate(720deg) scale(1); }
+        }
+
+        /* Кнопка броска */
+        .roll-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 1rem 3rem;
+            font-size: 1.2rem;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin: 1rem 0;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+
+        .roll-button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .roll-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Результаты */
+        .results {
+            background: #f5f5f5;
+            border-radius: 15px;
+            padding: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .result-message {
+            font-size: 1.2rem;
+            color: #333;
+            margin-bottom: 0.5rem;
+        }
+
+        .total {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        /* Статистика */
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 2px solid #ddd;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            color: #666;
+            text-transform: uppercase;
+        }
+
+        .stat-value {
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #333;
+        }
+
+        /* Индикатор загрузки */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Адаптивность */
+        @media (max-width: 600px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .dice {
+                width: 60px;
+                height: 60px;
+                font-size: 1.5rem;
+            }
+
+            .control-group {
+                flex-direction: column;
+                gap: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎲 Бросок кубиков 🎲</h1>
+
+        <div class="controls">
+            <div class="control-group">
+                <div class="control-item">
+                    <label for="diceCount">Количество кубиков</label>
+                    <input
+                        type="number"
+                        id="diceCount"
+                        min="1"
+                        max="10"
+                        value="2"
+                        onchange="updateDiceCount()"
+                    >
+                </div>
+
+                <div class="control-item">
+                    <label for="diceSides">Количество граней</label>
+                    <input
+                        type="number"
+                        id="diceSides"
+                        min="2"
+                        max="100"
+                        value="6"
+                    >
+                </div>
+            </div>
+        </div>
+
+        <div class="dice-container" id="diceContainer">
+            <!-- Кубики будут создаваться динамически -->
+        </div>
+
+        <button class="roll-button" id="rollButton" onclick="rollDice()">
+            Бросить кубики
+        </button>
+
+        <div class="results" id="results">
+            <div class="result-message" id="resultMessage">
+                👆 Выберите количество кубиков и нажмите кнопку
+            </div>
+            <div class="total" id="total"></div>
+
+            <div class="stats" id="stats">
+                <div class="stat-item">
+                    <div class="stat-label">Кубиков</div>
+                    <div class="stat-value" id="statCount">2</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Граней</div>
+                    <div class="stat-value" id="statSides">6</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Сумма</div>
+                    <div class="stat-value" id="statTotal">0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+ <script src="/static/js/script1.js"></script>
+
+</body>
+
+</html>
