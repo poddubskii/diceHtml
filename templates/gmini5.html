@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>3D Dice: Fixed Physics & No Sticking</title>
+    <style>
+        :root { --dice-size: 40px; }
+        body {
+            margin: 0; overflow: hidden; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; min-height: 100vh;
+            background: #4f4f4f; perspective: 1500px; font-family: sans-serif;
+        }
+
+        .table {
+            position: relative; width: 800px; height: 500px;
+            transform-style: preserve-3d; transform: rotateX(50deg);
+        }
+        .felt {
+            position: absolute; width: 100%; height: 114%;
+            background: transparent;           
+            box-sizing: border-box;
+            background-image: url(/static/img/table.png);  
+            background-size: cover; 
+        }
+
+        .cup-hand {
+            position: fixed; right: 30px; top: 40%;
+            transform-style: preserve-3d; z-index: 1000;
+        }
+        .cup {
+            width: 133px;
+            height: 126px;
+            background-size: cover;
+          
+            background-image: url(/static/img/cup.png); 
+          
+            
+        }
+
+        .dice-wrapper {
+            position: absolute; width: var(--dice-size); height: var(--dice-size);
+            transform-style: preserve-3d; left: 0; top: 0; will-change: transform;
+        }
+        .dice {
+            width: 100%; height: 100%; position: absolute; transform-style: preserve-3d;
+        }
+        .face {
+            position: absolute; width: 40px; height: 40px;
+            background: #fff; border: 1px solid #ccc; border-radius: 4px;
+            display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+            padding: 3px; box-sizing: border-box; backface-visibility: hidden;
+        }
+        .dot { width: 8px; height: 8px; background: #111; border-radius: 50%; align-self: center; justify-self: center; }
+
+        .f1 { transform: rotateY(0deg) translateZ(20px); }
+        .f6 { transform: rotateY(180deg) translateZ(20px); }
+        .f2 { transform: rotateX(-90deg) translateZ(20px); }
+        .f5 { transform: rotateX(90deg) translateZ(20px); }
+        .f3 { transform: rotateY(90deg) translateZ(20px); }
+        .f4 { transform: rotateY(-90deg) translateZ(20px); }
+
+        .ui { position: fixed; bottom: 30px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+        .power-bar { width: 250px; height: 10px; background: #000; border-radius: 5px; overflow: hidden; border: 1px solid #333; }
+        #fill { width: 0%; height: 100%; background: linear-gradient(90deg, #f1c40f, #e74c3c); }
+        button { padding: 15px 40px; border-radius: 30px; border: none; background: #c0392b; color: #fff; font-weight: bold; cursor: pointer; box-shadow: 0 4px #8a2a20; }
+        button:active { transform: translateY(2px); box-shadow: 0 2px #8a2a20; }
+        #res { color: #f1c40f; font-size: 28px; position: fixed; top: 40px; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+ 
+
+        #poolwrapper {
+
+            width: 67vh;
+          /*  padding: 20px;*/
+
+        /* border: 2px solid #343a40; */
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            cursor: auto;
+            user-select: none;
+            /* box-shadow: inset 1px 2px 8px 5px #000; */
+            border-radius: 50%;
+            height: 38vh;
+            transform: translate(-50%, -50%);
+    }
+    </style>
+</head>
+<body>
+
+    <div id="res"></div>
+    <div class="cup-hand" id="hand"><div class="cup"></div></div>
+
+    <div class="table">
+        <div class="felt"></div>
+        <div id="poolwrapper">
+            <div id="pool" style="transform-style: preserve-3d; width: 100%; height: 100%;"></div>
+        </div>
+    </div>
+
+    <div class="ui">
+        <div class="power-bar"><div id="fill"></div></div>
+        <button id="roll-btn">БРОСИТЬ С ПРАВОЙ</button>
+    </div>
+
+{#<script>
+    const pool = document.getElementById('pool');
+    const fill = document.getElementById('fill');
+    const res = document.getElementById('res');
+    const btn = document.getElementById('roll-btn');
+
+    let charge = 0, chargeInt, isRolling = false;
+    const diceObjects = [];
+    const tableW = 800, tableH = 500, margin = 50;
+    const dotsMap = {1:[5], 2:[1,9], 3:[1,5,9], 4:[1,3,7,9], 5:[1,3,5,7,9], 6:[1,3,4,6,7,9]};
+
+    function initDice() {
+        for(let i=0; i<5; i++) {
+            const el = document.createElement('div');
+            el.className = 'dice-wrapper';
+            let faces = '';
+            [1,6,2,5,3,4].forEach(v => {
+                let dots = '';
+                for(let d=1; d<=9; d++) dots += dotsMap[v].includes(d) ? `<div class="dot"></div>` : `<div></div>`;
+                faces += `<div class="face f${v}">${dots}</div>`;
+            });
+            el.innerHTML = `<div class="dice">${faces}</div>`;
+            pool.appendChild(el);
+            diceObjects.push({ el, inner: el.querySelector('.dice'), x: 750, y: 250, z: 50, vx: 0, vy: 0, vz: 0, rx: 0, ry: 0, rvx: 0, rvy: 0, val: 1, stopped: true });
+        }
+    }
+    initDice();
+
+    btn.onmousedown = () => {
+        if(isRolling) return;
+        charge = 0; res.innerText = "";
+        chargeInt = setInterval(() => { if(charge < 100) { charge += 4; fill.style.width = charge + '%'; } }, 30);
+    };
+
+    window.onmouseup = () => {
+        if(!chargeInt) return;
+        clearInterval(chargeInt); chargeInt = null;
+        launch(charge);
+        fill.style.width = '0%';
+    };
+
+    function launch(p) {
+        isRolling = true;
+        diceObjects.forEach((d, i) => {
+            d.stopped = false;
+            d.inner.style.transition = "none";
+            d.x = 750; d.y = 150 + (i * 45); d.z = 60;
+            // Импульс влево
+            d.vx = -(8 + (p / 7)) - Math.random() * 5;
+            d.vy = (Math.random() - 0.5) * 15;
+            d.vz = 2 + Math.random() * 5;
+            // Вращение (зависит от силы)
+            d.rvx = (Math.random() * 30 + 10) * (p/30 + 1);
+            d.rvy = (Math.random() * 30 + 10) * (p/30 + 1);
+            d.val = Math.floor(Math.random() * 6) + 1;
+        });
+        requestAnimationFrame(update);
+    }
+
+    function update() {
+        let activeDice = 0;
+
+        for (let i = 0; i < diceObjects.length; i++) {
+            let d = diceObjects[i];
+            if (d.stopped) continue;
+            activeDice++;
+
+            // Физика перемещения
+            d.vz -= 0.6; // Гравитация
+            d.x += d.vx; d.y += d.vy; d.z += d.vz;
+            d.rx += d.rvx; d.ry += d.rvy;
+
+            // Отскок от пола + Трение
+            if (d.z < 20) {
+                d.z = 20;
+                d.vz *= -0.4; // Потеря энергии при прыжке
+                d.vx *= 0.75; d.vy *= 0.75; // Трение о сукно (быстрая остановка)
+                d.rvx *= 0.85; d.rvy *= 0.85; // Затухание вращения
+            }
+
+            // Границы бортов
+            if (d.x < margin) { d.x = margin; d.vx *= -0.5; }
+            if (d.x > tableW - margin) { d.x = tableW - margin; d.vx *= -0.5; }
+            if (d.y < margin) { d.y = margin; d.vy *= -0.5; }
+            if (d.y > tableH - margin) { d.y = tableH - margin; d.vy *= -0.5; }
+
+            // Столкновения (Борьба с "кучей")
+            for (let j = i + 1; j < diceObjects.length; j++) {
+                let d2 = diceObjects[j];
+                let dx = d2.x - d.x, dy = d2.y - d.y;
+                let dist = Math.hypot(dx, dy);
+                let minDist = 45;
+
+                if (dist < minDist && Math.abs(d.z - d2.z) < 30) {
+                    // 1. Расталкивание (чтобы не слипались)
+                    let overlap = minDist - dist;
+                    let nx = dx / dist, ny = dy / dist;
+                    d.x -= nx * overlap / 2; d.y -= ny * overlap / 2;
+                    d2.x += nx * overlap / 2; d2.y += ny * overlap / 2;
+
+                    // 2. Отскок
+                    [d.vx, d2.vx] = [d2.vx * 0.7, d.vx * 0.7];
+                    [d.vy, d2.vy] = [d2.vy * 0.7, d.vy * 0.7];
+                }
+            }
+
+            // Условие полной остановки
+            if (Math.abs(d.vx) < 0.2 && Math.abs(d.vy) < 0.2 && Math.abs(d.vz) < 0.5 && d.z <= 21) {
+                stopDice(d);
+            }
+
+            d.el.style.transform = `translate3d(${d.x}px, ${d.y}px, ${d.z}px)`;
+            d.inner.style.transform = `rotateX(${d.rx}deg) rotateY(${d.ry}deg)`;
+            d.inner.style.transform =  `rotateX(${151}deg) rotateY(${d.ry}deg rotateZ(${ d.vz}deg )`;
+            //d.inner.style.transform = `rotateX(${57}deg) rotateY(${d.ry}deg rotateZ(${ d.vz}deg )`;
+        }
+
+        if (activeDice > 0) requestAnimationFrame(update);
+        else showResult();
+    }
+
+    function stopDice(d) {
+        d.stopped = true;
+        d.vx = 0; d.vy = 0; d.vz = 0; d.z = 20;
+        const rots = {1:[0,0], 6:[0,180], 2:[90,0], 5:[-90,0], 3:[0,-90], 4:[0,90]};
+        const final = rots[d.val];
+        // Плавное выравнивание грани
+        d.rx = Math.round(d.rx / 90) * 90;
+        d.ry = Math.round(d.ry / 90) * 90;
+
+        // Корректировка под результат
+        d.rx = Math.round(d.rx / 360) * 360 + final[0];
+        d.ry = Math.round(d.ry / 360) * 360 + final[1];
+
+        d.inner.style.transition = "transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)";
+        //d.inner.style.transform = `rotateX(${d.rx}deg) rotateY(${d.ry}deg)`;
+        d.inner.style.transform =  `rotateX(${57}deg) rotateY(${d.ry}deg rotateZ(${ d.vz}deg )`;
+    }
+
+    function showResult() {
+        isRolling = false;
+        const total = diceObjects.reduce((a, b) => a + b.val, 0);
+        res.innerText = `Результат: ${total} (${diceObjects.map(d=>d.val).join(' + ')})`;
+    }
+</script>
+#}
+
+<script>
+    // ... (ваши константы в начале остаются) ...
+
+    // Параметры овального стола (эллипса)
+    const centerX = tableW / 2;
+    const centerY = tableH / 2;
+    const radiusX = 350; // Горизонтальный радиус стола
+    const radiusY = 220; // Вертикальный радиус стола
+
+    function launch(p) {
+        isRolling = true;
+        diceObjects.forEach((d, i) => {
+            d.stopped = false;
+            d.inner.style.transition = "none";
+            
+            // 1. Появляются в районе чаши (справа)
+            d.x = 700; 
+            d.y = 200; 
+            d.z = 150; // Вылетают сверху из чаши
+
+            // 2. Импульс: сильнее влево и немного вверх
+            d.vx = -(10 + (p / 5)) - Math.random() * 8;
+            d.vy = (Math.random() - 0.5) * 20;
+            d.vz = 5 + Math.random() * 10;
+
+            d.rvx = Math.random() * 50;
+            d.rvy = Math.random() * 50;
+            d.val = Math.floor(Math.random() * 6) + 1;
+        });
+        requestAnimationFrame(update);
+    }
+
+    function update() {
+        let activeDice = 0;
+
+        for (let i = 0; i < diceObjects.length; i++) {
+            let d = diceObjects[i];
+            if (d.stopped) continue;
+            activeDice++;
+
+            d.vz -= 0.8; // Гравитация
+            d.x += d.vx; d.y += d.vy; d.z += d.vz;
+            d.rx += d.rvx; d.ry += d.rvy;
+
+            // Отскок от поверхности стола
+            if (d.z < 20) {
+                d.z = 20;
+                d.vz *= -0.5;
+                d.vx *= 0.8; d.vy *= 0.8;
+                d.rvx *= 0.7; d.rvy *= 0.7;
+            }
+
+            // 3. ПРОВЕРКА ГРАНИЦ ОВАЛЬНОГО СТОЛА (Уравнение эллипса)
+            // (x - h)^2 / rx^2 + (y - k)^2 / ry^2 <= 1
+            let dx = d.x - centerX;
+            let dy = d.y - centerY;
+            let ellipseDist = (dx*dx) / (radiusX*radiusX) + (dy*dy) / (radiusY*radiusY);
+
+            if (ellipseDist > 1) {
+                // Если вылетел за овал — отражаем вектор скорости к центру
+                let angle = Math.atan2(dy, dx);
+                d.vx = -Math.cos(angle) * Math.abs(d.vx) * 0.7;
+                d.vy = -Math.sin(angle) * Math.abs(d.vy) * 0.7;
+                // Возвращаем кубик чуть внутрь, чтобы не застрял
+                d.x = centerX + Math.cos(angle) * (radiusX - 5);
+                d.y = centerY + Math.sin(angle) * (radiusY - 5);
+            }
+
+            // Применяем 3D трансформацию
+            d.el.style.transform = `translate3d(${d.x}px, ${d.y}px, ${d.z}px)`;
+            d.inner.style.transform = `rotateX(${d.rx}deg) rotateY(${d.ry}deg)`;
+            
+            if (Math.abs(d.vx) < 0.2 && Math.abs(d.vy) < 0.2 && d.z <= 21) {
+                stopDice(d);
+            }
+        }
+
+        if (activeDice > 0) requestAnimationFrame(update);
+        else showResult();
+    }
+
+    function stopDice(d) {
+        d.stopped = true;
+        const rots = {1:[0,0], 6:[180,0], 2:[90,0], 5:[-90,0], 3:[0,-90], 4:[0,90]};
+        const final = rots[d.val];
+        
+        d.inner.style.transition = "transform 0.5s ease-out";
+        // Чистый 3D поворот к нужной грани
+        d.inner.style.transform = `rotateX(${final[0]}deg) rotateY(${final[1]}deg)`;
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>3D Dice: Реальная физика качения</title>
+    <style>
+        :root { --dice-size: 50px; }
+        body {
+            margin: 0; overflow: hidden; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; min-height: 100vh;
+            background: #050505; perspective: 1800px; font-family: 'Segoe UI', sans-serif;
+        }
+
+        .scene {
+            position: relative; width: 1000px; height: 600px;
+            transform-style: preserve-3d; transform: rotateX(60deg);
+        }
+        .felt {
+            position: absolute; width: 100%; height: 100%;
+            background: radial-gradient(circle, #1a472a 0%, #051a0d 100%);
+            border: 15px solid #3e2723; border-radius: 30px;
+            box-shadow: inset 0 0 100px #000;
+        }
+
+        .cup-wrapper {
+            position: absolute; top: 5%; left: 50%; margin-left: -50px;
+            transform-style: preserve-3d; z-index: 100;
+        }
+        .cup {
+            width: 100px; height: 130px; background: #222;
+            border: 2px solid #444; border-radius: 0 0 20px 20px;
+        }
+        .vibrate { animation: shake 0.1s infinite; }
+        .cup-wrap {
+            position: absolute; right: -120px; top: 50px;
+            width: 100px; height: 120px; background: #5d4037;
+            border-radius: 10px 10px 40% 40%; transform-style: preserve-3d;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 2000;
+        }
+
+        .dice-wrapper {
+            position: absolute; width: var(--dice-size); height: var(--dice-size);
+            transform-style: preserve-3d; will-change: transform;
+        }
+        
+        /* Анимация "удара" об борт или другой кубик */
+        @keyframes hit-bounce {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        .hit { animation: hit-bounce 0.2s ease-out; }
+        @keyframes shake {
+            0% { transform: translate(1px, 1px); }
+            50% { transform: translate(-1px, -1px); }
+            100% { transform: translate(1px, -1px); }
+        }
+
+        /* ТРЕХСЛОЙНАЯ СТРУКТУРА ДЛЯ ФИЗИКИ:
+           1. .dice-wrapper: Отвечает за полет по столу (X, Y)
+           2. .dice-z: Отвечает за гравитацию и падение (Z)
+           3. .dice: Отвечает за вращение кубика
+        */
+        .dice-wrapper {
+            position: absolute; left: 50%; top: 50px;
+            width: var(--dice-size); height: var(--dice-size);
+            margin-left: -25px; transform-style: preserve-3d;
+            opacity: 0; pointer-events: none;
+        }
+        .dice-z {
+            width: 100%; height: 100%; position: absolute;
+            transform-style: preserve-3d;
+        }
+        .dice {
+            width: 100%; height: 100%; position: absolute;
+            transform-style: preserve-3d;
+        }
+
+        .face {
+            position: absolute; width: 50px; height: 50px;
+            background: #fff; border: 1px solid #ccc; border-radius: 8px;
+            display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+            padding: 5px; box-sizing: border-box; backface-visibility: hidden;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.1);
+        }
+        .dot { width: 10px; height: 10px; background: #111; border-radius: 50%; align-self: center; justify-self: center; }
+
+        .f1 { transform: rotateY(0deg) translateZ(25px); }
+        .f6 { transform: rotateY(180deg) translateZ(25px); }
+        .f2 { transform: rotateX(-90deg) translateZ(25px); }
+        .f5 { transform: rotateX(90deg) translateZ(25px); }
+        .f3 { transform: rotateY(90deg) translateZ(25px); }
+        .f4 { transform: rotateY(-90deg) translateZ(25px); }
+
+        .ui { position: fixed; bottom: 40px; display: flex; flex-direction: column; align-items: center; gap: 15px; }
+        #res-display { color: #f1c40f; font-size: 30px; font-weight: bold; min-height: 40px; text-shadow: 0 0 10px rgba(0,0,0,0.5); }
+        .power-bar { width: 300px; height: 15px; background: #222; border-radius: 10px; border: 2px solid #444; overflow: hidden; }
+        #power-level { width: 0%; height: 100%; background: linear-gradient(90deg, #27ae60, #f1c40f, #e74c3c); }
+
+        button {
+            padding: 20px 60px; background: #c0392b; color: white; border: none;
+            border-radius: 50px; font-weight: bold; font-size: 20px; cursor: pointer;
+            box-shadow: 0 6px #962d22; transition: 0.1s; user-select: none;
+        }
+        button:active { transform: translateY(3px); box-shadow: 0 3px #962d22; }
+    </style>
+</head>
+<body>
+
+    <div id="res-display"></div>
+
+    <div class="cup-wrapper" id="cup-wrap">
+        <div class="cup" id="cup-body"></div>
+    </div>
+
+    <div class="scene">
+        <div class="felt"></div>
+        <div id="dice-field" style="transform-style: preserve-3d;"></div>
+    </div>
+
+    <div class="ui">
+        <div class="power-bar"><div id="power-level"></div></div>
+        <button id="throw-btn">ЗАРЯДИТЬ БРОСОК</button>
+    </div>
+
+   {# <script>
+        const field = document.getElementById('dice-field');
+        const cupWrap = document.getElementById('cup-wrap');
+        const cupBody = document.getElementById('cup-body');
+        const powerLevel = document.getElementById('power-level');
+        const resDisplay = document.getElementById('res-display');
+        const btn = document.getElementById('throw-btn');
+
+        let power = 0;
+        let pInterval;
+        let isRolling = false;
+
+        const dotsMap = {
+            1: [5], 2: [1, 9], 3: [1, 5, 9],
+            4: [1, 3, 7, 9], 5: [1, 3, 5, 7, 9], 6: [1, 3, 4, 6, 7, 9]
+        };
+
+        function createDice() {
+            for(let i=0; i<5; i++) {
+                const w = document.createElement('div');
+                w.className = 'dice-wrapper';
+                let facesHTML = '';
+                [1,6,2,5,3,4].forEach(v => {
+                    let dots = '';
+                    for(let d=1; d<=9; d++) {
+                        if(dotsMap[v].includes(d)) dots += `<div class="dot"></div>`;
+                        else dots += `<div></div>`;
+                    }
+                    facesHTML += `<div class="face f${v}">${dots}</div>`;
+                });
+                // Вкладываем слои друг в друга: wrapper (X/Y) -> z-layer (Z) -> dice (Вращение)
+                w.innerHTML = `<div class="dice-z"><div class="dice">${facesHTML}</div></div>`;
+                field.appendChild(w);
+            }
+        }
+        createDice();
+
+        btn.onmousedown = () => {
+            if(isRolling) return;
+            power = 0;
+            resDisplay.innerText = "";
+            cupBody.classList.add('vibrate');
+            pInterval = setInterval(() => {
+                if(power < 100) {
+                    power += 5;
+                    powerLevel.style.width = power + '%';
+                    cupWrap.style.transform = `translateY(${-power/4}px) rotate(${power/20}deg)`;
+                }
+            }, 25);
+        };
+
+        window.onmouseup = () => {
+            if(!pInterval) return;
+            clearInterval(pInterval);
+            pInterval = null;
+            cupBody.classList.remove('vibrate');
+            startThrow(power);
+            powerLevel.style.width = '0%';
+        };
+
+        function startThrow(p) {
+            isRolling = true;
+            cupWrap.style.transition = "transform 0.3s ease-in";
+            cupWrap.style.transform = "translateY(-150px) rotateX(-40deg) rotateZ(-100deg)";
+
+            const wraps = document.querySelectorAll('.dice-wrapper');
+            const usedPos = [];
+            const results = [];
+
+            wraps.forEach((w, i) => {
+                const zWrap = w.querySelector('.dice-z');
+                const dice = w.querySelector('.dice');
+
+                // 1. ПОЛНЫЙ СБРОС СЛОЕВ
+                w.style.transition = 'none';
+                zWrap.style.transition = 'none';
+                dice.style.transition = 'none';
+
+                w.style.opacity = '0';
+                w.style.transform = `translate(0px, 0px) rotateZ(0deg)`; // Позиция стакана
+                zWrap.style.transform = `translateZ(180px)`; // Высота стакана
+                dice.style.transform = `rotateX(0deg) rotateY(0deg)`;
+
+                void w.offsetWidth; // Принудительный рефлоу
+
+                // 2. РАСЧЕТ ДИСТАНЦИИ
+                let tx, ty;
+                let attempts = 0;
+                do {
+                    const radius = 200 + (p * 15); // Дальность полета от силы
+                    tx = (Math.random() - 0.38) * radius; // Лево / Право
+                    ty = Math.random() * (radius * 0.65) + 150; // Всегда вперед (вниз по столу)
+                    attempts++;
+                } while (usedPos.some(pos => Math.hypot(tx-pos.x, ty-pos.y) < 65) && attempts < 50);
+
+                usedPos.push({x: tx, y: ty});
+
+                setTimeout(() => {
+                    const duration = 0.8 + (p/220); // Общее время качения
+                    const dropTime = 0.3 + (p/800); // Время падения на стол (гравитация)
+
+                    // Анимация X/Y (Трение качения)
+                    w.style.opacity = '1';
+                    w.style.transition = `transform ${duration}s cubic-bezier(0.1, 0.9, 0.2, 1), opacity 0.1s`;
+                    const rz = (Math.random() - 0.5) * 20;
+                    w.style.transform = `translate(${tx}px, ${ty}px) rotateZ(${rz}deg)`;
+
+                    // Анимация Z (Гравитация - падает быстро и жестко)
+                    zWrap.style.transition = `transform ${dropTime}s cubic-bezier(0.5, 0, 1, 1)`;
+                    zWrap.style.transform = `translateZ(25px)`;
+
+                    // Вычисляем результат
+                    const val = Math.floor(Math.random() * 6) + 1;
+                    results.push(val);
+                    const rotations = {
+                        1: {x: 0, y: 0}, 6: {x: 0, y: 180},
+                        2: {x: 90, y: 0}, 5: {x: -90, y: 0},
+                        3: {x: 0, y: -90}, 4: {x: 0, y: 90}
+                    };
+                    const rot = rotations[val];
+
+                    // МАТЕМАТИКА КАЧЕНИЯ (Синхронизация с X/Y)
+                    // Длина окружности кубика ~150px (360 градусов)
+                    // Считаем сколько полных оборотов нужно сделать исходя из пройденного расстояния
+                    let spinsY = Math.max(2, Math.round(Math.abs(tx) / 150) + 6);
+                    let spinsX = Math.max(2, Math.round(Math.abs(ty) / 150) + 6);
+
+                    // Важно: знак вращения зависит от направления движения!
+                    // Если едет вниз (+ty), крутим по X в минус. Если едет вправо (+tx), крутим по Y в плюс.
+                    let signX = (ty > 0) ? -1 : 1;
+                    let signY = (tx > 0) ? 1 : -1;
+
+                    let finalRotX = rot.x + (spinsX * 360 * signX);
+                    let finalRotY = rot.y + (spinsY * 360 * signY);
+
+                    dice.style.transition = `transform ${duration}s cubic-bezier(0.1, 0.9, 0.2, 1)`;
+                    dice.style.transform = `rotateX(${finalRotX}deg) rotateY(${finalRotY}deg)`;
+
+                    if(i === wraps.length - 1) {
+                        setTimeout(() => {
+                            resDisplay.innerText = `Сумма: ${results.reduce((a,b)=>a+b,0)} (${results.join(' + ')})`;
+                            isRolling = false;
+                            setTimeout(() => {
+                                cupWrap.style.transition = "transform 0.5s ease-out";
+                                cupWrap.style.transform = "translateY(0) rotate(0)";
+                            }, 500);
+                        }, duration * 1000);
+                    }
+                }, i * 40 + 50);
+            });
+        }
+    </script>#}
+    <script>
+    const cup = document.getElementById('cup');
+    const pool = document.getElementById('pool');
+    
+    function startThrow(p) {
+        const isRolling = true;
+        
+        // 1. Анимация стакана: наклон ВЛЕВО (высыпаем)
+        cup.style.transform = "translateX(-100px) rotateZ(-110deg) rotateX(30deg)";
+
+        const diceCount = 5;
+        const usedPos = [];
+        
+        // Очистка поля перед новым броском
+        pool.innerHTML = '';
+
+        for(let i=0; i<diceCount; i++) {
+            // Создаем кубик (код создания пропущен для краткости, используй свой шаблон)
+            const w = createDiceElement(); 
+            pool.appendChild(w);
+
+            const dice = w.querySelector('.dice');
+            const zWrap = w.querySelector('.dice-z');
+
+            // 2. СТАРТ СПРАВА (в координатах стакана)
+            w.style.left = "700px";
+            w.style.top = "100px";
+            w.style.opacity = "0";
+
+            // 3. РАСЧЕТ ТРАЕКТОРИИ С ОТСКОКОМ
+            let tx, ty;
+            let attempts = 0;
+            do {
+                const power = 200 + (p * 10);
+                // tx теперь всегда отрицательный (летит влево от стакана)
+                tx = -Math.random() * power - 100; 
+                ty = (Math.random() - 0.5) * (power * 0.8) + 100;
+                attempts++;
+            } while (usedPos.some(pos => Math.hypot(tx - pos.x, ty - pos.y) < 70) && attempts < 100);
+
+            usedPos.push({x: tx, y: ty});
+
+            // 4. ЗАПУСК АНИМАЦИИ
+            setTimeout(() => {
+                const duration = 1.0 + Math.random() * 0.5;
+                
+                w.style.opacity = "1";
+                // Используем плавное замедление для имитации трения
+                w.style.transition = `transform ${duration}s cubic-bezier(0.15, 0.85, 0.35, 1), opacity 0.2s`;
+                w.style.transform = `translate(${tx}px, ${ty}px) rotateZ(${Math.random() * 360}deg)`;
+
+                // Падение (Z-ось)
+                zWrap.style.transition = `transform 0.4s ease-in`;
+                zWrap.style.transform = `translateZ(0px)`;
+
+                // Вращение (как я объяснял выше)
+                const val = Math.floor(Math.random() * 6) + 1;
+                applyRotation(dice, val, tx, ty, duration);
+
+                // Имитация отскока: если кубик летит слишком далеко, 
+                // можно добавить класс .hit в середине пути через еще один setTimeout
+                setTimeout(() => {
+                    w.classList.add('hit');
+                }, duration * 500);
+
+            }, i * 60); // Кубики вылетают по очереди
+        }
+
+        // Возврат стакана
+        setTimeout(() => {
+            cup.style.transform = "translate(0) rotate(0)";
+        }, 800);
+    }
+
+    // Вспомогательная функция для вращения
+    function applyRotation(el, val, tx, ty, duration) {
+        const rots = {1:{x:0,y:0}, 6:{x:0,y:180}, 2:{x:90,y:0}, 5:{x:-90,y:0}, 3:{x:0,y:-90}, 4:{x:0,y:90}};
+        const r = rots[val];
+        const spins = 5 + Math.floor(Math.random() * 5);
+        
+        el.style.transition = `transform ${duration}s cubic-bezier(0.15, 0.85, 0.35, 1)`;
+        // Вращаем кубик многократно, прибавляя финальный угол
+        el.style.transform = `rotateX(${r.x + spins * 360}deg) rotateY(${r.y + spins * 360}deg)`;
+    }
+</script>
+</body>
+</html>

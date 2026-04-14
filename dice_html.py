@@ -36,7 +36,7 @@ templates = Jinja2Templates(directory="templates")
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse(
-        "game.html",
+        "gmini777.html",
         {"request": request}
     )
 
@@ -61,6 +61,4 @@ async def roll_dice(request: DiceRollRequest):
 
 
 if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8008)
+    uvicorn.run(app, host="0.0.0.0", port=8007)

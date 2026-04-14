@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>3D Dice Pro: Octagon Table</title>
+    <style>
+        :root { --dice-size: 36px; }
+        body {
+            margin: 0; overflow: hidden; display: flex; align-items: center; justify-content: center;
+            min-height: 100vh; background: #1a1a1a; font-family: sans-serif;
+            perspective: 1500px;
+        }
+
+        .table-container {
+            position: relative; width: 850px; height: 550px;
+            background-image: url('/static/img/table.png'); /* Ваше изображение */
+            background-size: contain; background-repeat: no-repeat; background-position: center;
+            transform-style: preserve-3d;
+        }
+
+        /* Чаша (просто для визуального ориентира, если она часть фона — уберите) */
+        .cup-hand {
+            position: absolute; right: 80px; top: 40px; width: 120px; height: 120px;
+            z-index: 100; pointer-events: none;
+        }
+
+        /* КУБИК 3D */
+        .dice-wrapper {
+            position: absolute; width: var(--dice-size); height: var(--dice-size);
+            transform-style: preserve-3d; left: 0; top: 0; will-change: transform;
+        }
+        .dice {
+            width: 100%; height: 100%; position: absolute; transform-style: preserve-3d;
+        }
+        .face {
+            position: absolute; width: var(--dice-size); height: var(--dice-size);
+            background: #fff; border: 1px solid #aaa; border-radius: 4px;
+            display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+            padding: 3px; box-sizing: border-box; backface-visibility: visible;
+        }
+        .dot { width: 6px; height: 6px; background: #111; border-radius: 50%; align-self: center; justify-self: center; }
+
+        /* Правильная сборка куба в пространстве */
+        .f1 { transform: rotateY(0deg) translateZ(18px); }
+        .f6 { transform: rotateY(180deg) translateZ(18px); }
+        .f2 { transform: rotateX(90deg) translateZ(18px); }
+        .f5 { transform: rotateX(-90deg) translateZ(18px); }
+        .f3 { transform: rotateY(90deg) translateZ(18px); }
+        .f4 { transform: rotateY(-90deg) translateZ(18px); }
+
+        .ui { position: fixed; bottom: 30px; text-align: center; }
+        button { 
+            padding: 15px 60px; border-radius: 40px; border: none; 
+            background: #c0392b; color: #fff; font-weight: bold; cursor: pointer;
+            box-shadow: 0 6px #8a2a20; font-size: 20px;
+        }
+        button:active { transform: translateY(3px); box-shadow: 0 3px #8a2a20; }
+        #res { color: #f1c40f; font-size: 26px; position: fixed; top: 10px; font-weight: bold; width: 100%; text-align: center; }
+    </style>
+</head>
+<body>
+
+<div id="res">ИТОГО: 0</div>
+<div class="table-container">
+    <div id="pool" style="position: absolute; width: 100%; height: 100%; transform-style: preserve-3d;"></div>
+</div>
+
+<div class="ui">
+    <button id="roll-btn">БРОСИТЬ</button>
+</div>
+
+<script>
+    const pool = document.getElementById('pool');
+    const res = document.getElementById('res');
+    const btn = document.getElementById('roll-btn');
+
+    let isRolling = false;
+    const diceObjects = [];
+    const dotsMap = {1:[5], 2:[1,9], 3:[1,5,9], 4:[1,3,7,9], 5:[1,3,5,7,9], 6:[1,3,4,6,7,9]};
+
+    // ГРАНИЦЫ ЗЕЛЕНОГО СУКНА (согласно вашему восьмиугольнику)
+    const tableMinX = 240, tableMaxX = 600;
+    const tableMinY = 180, tableMaxY = 420;
+
+    function initDice() {
+        for(let i=0; i<5; i++) {
+            const el = document.createElement('div');
+            el.className = 'dice-wrapper';
+            let faces = '';
+            [1,6,2,5,3,4].forEach(v => {
+                let dots = '';
+                for(let d=1; d<=9; d++) dots += dotsMap[v].includes(d) ? `<div class="dot"></div>` : `<div></div>`;
+                faces += `<div class="face f${v}">${dots}</div>`;
+            });
+            el.innerHTML = `<div class="dice">${faces}</div>`;
+            pool.appendChild(el);
+            diceObjects.push({ 
+                el, inner: el.querySelector('.dice'), 
+                x: 750, y: 100, z: 150,
+                vx: 0, vy: 0, vz: 0, rx: 0, ry: 0, rz: 0,
+                rvx: 0, rvy: 0, rvz: 0, val: 1, stopped: true 
+            });
+        }
+    }
+    initDice();
+
+    btn.onclick = () => { if(!isRolling) launch(); };
+
+    function launch() {
+        isRolling = true;
+        diceObjects.forEach((d, i) => {
+            d.stopped = false;
+            d.inner.style.transition = "none";
+            
+            // Вылет прямо из центра чаши (вверху справа)
+            d.x = 750; d.y = 120; d.z = 100;
+
+            d.vx = -15 - Math.random() * 10;
+            d.vy = 8 + Math.random() * 12;
+            d.vz = 5 + Math.random() * 10;
+
+            d.rvx = Math.random() * 40; d.rvy = Math.random() * 40; d.rvz = Math.random() * 40;
+            d.val = Math.floor(Math.random() * 6) + 1;
+        });
+        requestAnimationFrame(update);
+    }
+
+    function update() {
+        let activeDice = 0;
+        diceObjects.forEach(d => {
+            if (d.stopped) return;
+            activeDice++;
+
+            d.vz -= 0.8; // Сильная гравитация
+            d.x += d.vx; d.y += d.vy; d.z += d.vz;
+            d.rx += d.rvx; d.ry += d.rvy; d.rz += d.rvz;
+
+            // Отскок от пола
+            if (d.z < 0) {
+                d.z = 0; d.vz *= -0.4;
+                d.vx *= 0.85; d.vy *= 0.85; // Трение
+                d.rvx *= 0.8; d.rvy *= 0.8; d.rvz *= 0.8;
+            }
+
+            // Отскок от внутренних бортов сукна
+            if (d.x < tableMinX || d.x > tableMaxX) { 
+                d.vx *= -0.7; d.x = d.x < tableMinX ? tableMinX : tableMaxX; 
+            }
+            if (d.y < tableMinY || d.y > tableMaxY) { 
+                d.vy *= -0.7; d.y = d.y < tableMinY ? tableMinY : tableMaxY; 
+            }
+
+            // Условие остановки
+            if (Math.abs(d.vx) < 0.2 && Math.abs(d.vy) < 0.2 && d.z < 1) {
+                stopDice(d);
+            }
+
+            d.el.style.transform = `translate3d(${d.x}px, ${d.y}px, ${d.z}px)`;
+            d.inner.style.transform = `rotateX(${d.rx}deg) rotateY(${d.ry}deg) rotateZ(${d.rz}deg)`;
+        });
+
+        if (activeDice > 0) requestAnimationFrame(update);
+        else showResult();
+    }
+
+    function stopDice(d) {
+        d.stopped = true;
+        d.z = 0;
+        const rots = {1:[0,0], 6:[180,0], 2:[-90,0], 5:[90,0], 3:[0,-90], 4:[0,90]};
+        const final = rots[d.val];
+        
+        d.inner.style.transition = "transform 0.5s ease-out";
+        // При остановке сохраняем небольшой случайный поворот вокруг своей оси
+        d.inner.style.transform = `rotateX(${final[0]}deg) rotateY(${final[1]}deg) rotateZ(${Math.random() * 360}deg)`;
+    }
+
+    function showResult() {
+        isRolling = false;
+        const total = diceObjects.reduce((a, b) => a + b.val, 0);
+        res.innerText = `ИТОГО: ${total} [${diceObjects.map(d=>d.val).join(' ')}]`;
+    }
+</script>
+</body>
+</html>

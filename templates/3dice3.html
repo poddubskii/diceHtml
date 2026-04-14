@@ -650,8 +650,8 @@ class DicePhysics {
                 }
 
                 // Добавляем небольшой случайный наклон для естественности
-                targetX += (Math.random() - 0.5) * 10;
-                targetY += (Math.random() - 0.5) * 10;
+                targetX += (Math.random() - 0.5) * 20;
+                targetY += (Math.random() - 0.5) * 20;
 
                 this.diceRotation = { x: targetX, y: targetY, z: targetZ };
 
@@ -665,9 +665,9 @@ class DicePhysics {
                 const dice = this.element.querySelector('.dice');
 
                 // Генерируем случайные углы
-                const rx = Math.floor(Math.random() * 360);
-                const ry = Math.floor(Math.random() * 360);
-                const rz = Math.floor(Math.random() * 360);
+                const rx = Math.floor(Math.random() * 360*5);
+                const ry = Math.floor(Math.random() * 360*5);
+                const rz = Math.floor(Math.random() * 360*5);
 
                 this.diceRotation = { x: rx, y: ry, z: rz };
 
@@ -814,19 +814,19 @@ class DicePhysics {
 
             await new Promise(resolve => setTimeout(resolve, 200));
 
-            const baseSpeed = 5 + power * 8; // Уменьшил с 8 + power*12 до 5 + power*8
-            const spread = 0.4 + power * 0.6; // Уменьшил разброс
+            const baseSpeed = 35 + power * 8; // Уменьшил с 8 + power*12 до 5 + power*8
+            const spread = 1 + power * 1.6; // Уменьшил разброс
 
             // Бросок - задаем начальные скорости
             dicePhysics.forEach((p, i) => {
-                const angle = (Math.random() - 0.5) * spread * Math.PI;
-                const speed = baseSpeed * (0.7 + Math.random() * 0.4); // Уменьшил множители
+                const angle = (Math.random() - 0.8) * spread * Math.PI;
+                const speed = baseSpeed * (0.7 + Math.random() * 0.8); // Уменьшил множители
 
-                p.vx = Math.sin(angle) * speed * 2.5; // Уменьшил с 3 до 2.5
-                p.vy = -Math.cos(angle) * speed * 2.5;
-                p.rotationSpeed = (Math.random() - 0.5) * 0.2 * power * 8; // Уменьшил вращение
+                p.vx = Math.sin(angle) * speed * 3.5; // Уменьшил с 3 до 2.5
+                p.vy = -Math.cos(angle) * speed * 4;
+                p.rotationSpeed = (Math.random() - 0.8) * 0.8 * power * 28; // Уменьшил вращение
 
-                p.element.style.transition = 'opacity 0.3s ease';
+                p.element.style.transition = 'opacity 0.5s ease';
                 p.element.style.opacity = '1';
 
                 // Устанавливаем случайное вращение для кубика
