@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>3D Dice | Fast & Responsive</title>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+          "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+        }
+      }
+    </script>
+
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: #050608;
+        font-family: -apple-system, sans-serif;
+        user-select: none;
+        touch-action: none;
+      }
+      :root {
+        --p-bg: #ecffc1;
+        --ai-bg: #ffffff;
+        --accent: #4facfe;
+        --bonus-bg: #bbbbbb;
+        --border-bonus: #4facfe;
+      }
+      //*body { margin: 0; overflow: hidden; background: #004d00; font-family: sans-serif; user-select: none; touch-action: none; }
+
+      /* Прозрачная шапка сайта */
+      #site-header {
+        position: fixed;
+        top: 0;
+        width: 100%;
+        z-index: 10;
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(8px);
+        color: white;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .score-line {
+        display: flex;
+        justify-content: space-around;
+        padding: 8px 0;
+        font-size: 18px;
+        font-weight: 900;
+      }
+
+      /* ПЛАВАЮЩАЯ ТАБЛИЦА */
+      #window-container {
+        position: absolute;
+        top: 70px;
+        left: 2vw;
+        z-index: 100;
+        pointer-events: auto;
+        touch-action: none;
+      }
+
+      #game-table {
+        width: 96vw;
+        max-width: 480px;
+        background: #add8e6;
+        display: grid;
+        grid-template-columns: 35px repeat(4, 1fr) repeat(4, 1fr);
+        border: 2px solid #000;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      }
+
+      /* Заголовок-ручка для перетаскивания */
+      .drag-handle {
+        cursor: move;
+        border-bottom: 2px solid #000 !important;
+      }
+
+      .cell {
+        border: 0.5px solid rgba(0, 0, 0, 0.2);
+        height: 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        font-weight: bold;
+        position: relative;
+      }
+      .row-label {
+        background: #c0c0c0;
+        color: #333;
+        justify-content: flex-start;
+        padding-left: 3px;
+      }
+
+      .p-col {
+        background: #ffffff;
+        color: var(--accent);
+      }
+      .a-col {
+        background: var(--ai-bg);
+        color: #000;
+      }
+
+      /* Выделение бонусов */
+
+      .row_bonus {
+        background-color: rgba(0, 255, 128, 0.1) !important;
+      }
+      .col_bonus {
+        background-color: rgb(192 192 192) !important;
+        /* border-left: 1px solid gold !important; */
+      }
+
+      /* Рука */
+      .hand {
+        position: absolute;
+        top: -20px;
+        font-size: 18px;
+        display: none;
+      }
+      .active-turn .hand {
+        display: block;
+        animation: bounce 0.6s infinite alternate;
+      }
+      @keyframes bounce {
+        from {
+          transform: translateY(0);
+        }
+        to {
+          transform: translateY(-5px);
+        }
+      }
+
+      /* Заголовок-ручка для перетаскивания */
+      .drag-handle {
+        cursor: move;
+        border-bottom: 2px solid #000 !important;
+      }
+
+      .cell {
+        /* border: 0.5px solid rgba(0, 0, 0, 0.2); */
+        height: 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        font-weight: bold;
+        position: relative;
+      }
+      .row-label {
+        background: #c0c0c0;
+        color: #333;
+        justify-content: flex-start;
+        padding-left: 3px;
+      }
+
+      .p-col {
+        /* background: var(--p-bg); */
+        color: var(--accent);
+      }
+      .a-col {
+        background: var(--ai-bg);
+        color: #000;
+      }
+
+      /* Выделение бонусов */
+      .row_bonus_head {
+        border-top: 2px solid var(--accept);
+      }
+      .row_bonus {
+        background-color: rgb(192 192 192) !important;
+        color: #fff;
+      }
+      .col_bonus {
+        /* background-color: rgba(0, 0, 0, 0.15) !important; */
+        /* border-left: 1px solid gold !important; */
+      }
+
+      /* Рука */
+      .hand {
+        position: absolute;
+        top: -20px;
+        font-size: 18px;
+        display: none;
+      }
+      .active-turn .hand {
+        display: block;
+        animation: bounce 0.6s infinite alternate;
+      }
+      @keyframes bounce {
+        from {
+          transform: translateY(0);
+        }
+        to {
+          transform: translateY(-5px);
+        }
+      }
+
+      /* Кнопка управления */
+      #controls {
+        position: fixed;
+        bottom: 20px;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        z-index: 10;
+      }
+      #roll-btn {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: #ff4141;
+        border: 4px solid #fff;
+        color: #fff;
+        font-weight: bold;
+        cursor: pointer;
+      }
+
+      #ui-top {
+        position: fixed;
+        top: env(safe-area-inset-top, 20px);
+        left: 0;
+        width: 100%;
+        text-align: center;
+        color: #fff;
+        z-index: 200;
+        pointer-events: none;
+      }
+      .stats {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        color: #4facfe;
+      }
+      .total-score {
+        font-size: 64px;
+        font-weight: 900;
+        line-height: 1;
+        margin: 5px 0;
+        text-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+      }
+
+      #held-tray {
+        display: flex;
+        justify-content: center;
+        gap: 8px;
+        min-height: 32px;
+      }
+      .die-icon {
+        background: #4facfe;
+        color: #000;
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 16px;
+        box-shadow: 0 0 10px rgba(79, 172, 254, 0.3);
+      }
+
+      #ui-bottom {
+        position: fixed;
+        bottom: env(safe-area-inset-bottom, 30px);
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 150;
+        width: 90%;
+        max-width: 400px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .meter-container {
+        width: 100%;
+        height: 8px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+        display: none;
+        overflow: hidden;
+      }
+      #power-bar {
+        width: 0%;
+        height: 100%;
+        background: linear-gradient(90deg, #4facfe, #00f2fe);
+      }
+
+      .btn-group {
+        display: flex;
+        gap: 10px;
+      }
+      button {
+        flex: 1;
+        height: 75px;
+        font-size: 20px;
+        font-weight: 800;
+        cursor: pointer;
+        border-radius: 22px;
+        border: none;
+        background: #fff;
+        color: #000;
+        text-transform: uppercase;
+        box-shadow: 0 5px 0 #ccc;
+        transition: all 0.1s;
+        -webkit-tap-highlight-color: transparent;
+      }
+      button:active {
+        transform: translateY(3px);
+        box-shadow: 0 2px 0 #ccc;
+        background: #f0f0f0;
+      }
+      button:disabled {
+        opacity: 0.2;
+        transform: none;
+        box-shadow: none;
+      }
+      #reset-btn {
+        flex: 0.35;
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+        box-shadow: 0 5px 0 rgba(0, 0, 0, 0.3);
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="ui-top">
+      <div class="stats">Попыток: <span id="rolls-count">3</span> / 3</div>
+      <div class="total-score" id="res-text">0</div>
+      <div id="held-tray"></div>
+    </div>
+    <div id="window-container">
+      <div id="game-table">
+        <div class="cell row-label">№</div>
+        <div
+          class="cell p-col active-turn drag-handle"
+          style="grid-column: span 4"
+          id="p-header"
+        >
+          <span class="hand">👆</span> PLAYER
+        </div>
+        <div
+          class="cell a-col drag-handle"
+          style="grid-column: span 4"
+          id="a-header"
+        >
+          <span class="hand">👆</span> AI
+        </div>
+      </div>
+    </div>
+
+    <div id="ui-bottom">
+      <div class="meter-container" id="meter"><div id="power-bar"></div></div>
+      <div class="btn-group">
+        <button id="roll-btn">БРОСОК</button>
+        <button id="reset-btn">СБРОС</button>
+      </div>
+    </div>
+
+    <script type="module">
+      import * as THREE from "three";
+      import * as CANNON from "cannon-es";
+
+      let rollsLeft = 3;
+      const diceObjects = [];
+      let isRolling = false,
+        isCharging = false,
+        charge = 0;
+
+      const CATEGORIES = [
+        { id: "r1", n: "1" },
+        { id: "r2", n: "2" },
+        { id: "r3", n: "3" },
+        { id: "r4", n: "4" },
+        { id: "r5", n: "5" },
+        { id: "r6", n: "6" },
+        { id: "school-bonus", n: "" },
+        { id: "pair", n: "Para" },
+        { id: "two", n: "2+2" },
+        { id: "set", n: "▲" },
+        { id: "sq", n: "■" },
+        { id: "full", n: "Full" },
+        { id: "lstr", n: "LStr" },
+        { id: "bstr", n: "BStr" },
+        { id: "pok", n: "Poker" },
+        { id: "ch", n: "💲" },
+        { id: "game-bonus", n: "" },
+      ];
+
+      // Добавили 4-й объект в массивы p и a для премий
+      let game = {
+        p: [{}, {}, {}, {}],
+        a: [{}, {}, {}, {}],
+        rolls: 3,
+        turn: "p",
+        locked: false,
+      };
+
+      // --- ГЕНЕРАЦИЯ ТАБЛИЦЫ ---
+      const table = document.getElementById("game-table");
+      let rowIndex = 0; // Инициализируем счетчик строк перед циклом
+      CATEGORIES.forEach((cat) => {
+        // 1. Создаем заголовок строки (№)
+        const lbl = document.createElement("div");
+        lbl.className = "cell row-label";
+        lbl.innerText = cat.n;
+        table.appendChild(lbl);
+
+        // 2. Вспомогательная функция для стилей
+        const applyStyles = (cell, colIndex) => {
+          if (rowIndex === 0) cell.classList.add("row_bonus_head");
+          if (rowIndex === 6 || rowIndex === 16)
+            cell.classList.add("row_bonus");
+          if (colIndex === 3) cell.classList.add("col_bonus");
+        };
+
+        // 3. Создаем столбцы Игрока (0, 1, 2, 3-премия)
+        for (let i = 0; i < 4; i++) {
+          const c = document.createElement("div");
+          c.className = "cell p-col";
+          c.id = `p_${i}_${cat.id}`;
+          c.onclick = () => onCellClick(i, cat.id);
+
+          applyStyles(c, i); // Применяем выделение
+          table.appendChild(c);
+        }
+
+        // 4. Создаем столбцы ИИ (0, 1, 2, 3-премия)
+        for (let i = 0; i < 4; i++) {
+          const c = document.createElement("div");
+          c.className = "cell a-col";
+          c.id = `a_${i}_${cat.id}`;
+
+          applyStyles(c, i); // Применяем выделение
+          table.appendChild(c);
+        }
+
+        rowIndex++; // Переходим к следующей строке ПОСЛЕ отрисовки всех колонок
+      });
+
+      // --- ЛОГИКА ПЕРЕДВИЖЕНИЯ ТАБЛИЦЫ ---
+      const win = document.getElementById("window-container");
+      const handles = document.querySelectorAll(".drag-handle");
+      let isDragging = false,
+        offset = { x: 0, y: 0 };
+
+      const startDrag = (e) => {
+        isDragging = true;
+        const clientX = e.type.includes("touch")
+          ? e.touches[0].clientX
+          : e.clientX;
+        const clientY = e.type.includes("touch")
+          ? e.touches[0].clientY
+          : e.clientY;
+        offset.x = clientX - win.offsetLeft;
+        offset.y = clientY - win.offsetTop;
+      };
+
+      const doDrag = (e) => {
+        if (!isDragging) return;
+        const clientX = e.type.includes("touch")
+          ? e.touches[0].clientX
+          : e.clientX;
+        const clientY = e.type.includes("touch")
+          ? e.touches[0].clientY
+          : e.clientY;
+        win.style.left = clientX - offset.x + "px";
+        win.style.top = clientY - offset.y + "px";
+      };
+
+      handles.forEach((h) => {
+        h.addEventListener("mousedown", startDrag);
+        h.addEventListener("touchstart", startDrag);
+      });
+      window.addEventListener("mousemove", doDrag);
+      window.addEventListener("touchmove", doDrag, { passive: false });
+      window.addEventListener("mouseup", () => (isDragging = false));
+      window.addEventListener("touchend", () => (isDragging = false));
+
+      // СЦЕНА И КАМЕРА
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(
+        45,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
+      );
+
+      function adjustCamera() {
+        const isPortrait = window.innerHeight > window.innerWidth;
+        camera.position.set(0, isPortrait ? 55 : 40, isPortrait ? 25 : 20);
+        camera.lookAt(0, -8, 0);
+      }
+      adjustCamera();
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = true;
+      document.body.appendChild(renderer.domElement);
+
+      // ФИЗИКА (Быстрая)
+      const world = new CANNON.World();
+      // 1. Создаем физические типы материалов
+      const diceMaterial = new CANNON.Material("dice");
+      const groundMaterial = new CANNON.Material("ground");
+
+      // 2. Настраиваем ПРАВИЛА их взаимодействия
+      const contactMaterial = new CANNON.ContactMaterial(
+        diceMaterial,
+        groundMaterial,
+        {
+          restitution: 0.7, // ВОТ ЭТОТ ПАРАМЕТР. Попробуй 0.5 - 0.9
+          friction: 0.1, // Трение (чем меньше, тем больше они скользят)
+        }
+      );
+
+      // 3. Добавляем это правило в мир
+      world.addContactMaterial(contactMaterial);
+
+      world.gravity.set(0, -50, 0); // Сильная гравитация для скорости
+      world.allowSleep = true;
+
+      scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+      const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+      sun.position.set(10, 40, 15);
+      sun.castShadow = true;
+      scene.add(sun);
+
+      // АРЕНА (Компактная для мобильных)
+      const floorGeo = new THREE.PlaneGeometry(50, 50);
+      const floorMat = new THREE.MeshStandardMaterial({ color: 0x013720 });
+      const floor = new THREE.Mesh(floorGeo, floorMat);
+      floor.rotation.x = -Math.PI / 2;
+      floor.receiveShadow = true;
+      scene.add(floor);
+
+      const floorBody = new CANNON.Body({ mass: 0 });
+      floorBody.addShape(new CANNON.Plane());
+      floorBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+      world.addBody(floorBody);
+
+      const addWall = (x, z, w, d) => {
+        const b = new CANNON.Body({ mass: 0 });
+        b.addShape(new CANNON.Box(new CANNON.Vec3(w / 2 + 5, 10, d / 2 + 5)));
+        b.position.set(
+          x + (x !== 0 ? (x > 0 ? 5 : -5) : 0),
+          0,
+          z + (z !== 0 ? (z > 0 ? 5 : -5) : 0)
+        );
+        world.addBody(b);
+        const m = new THREE.Mesh(
+          new THREE.BoxGeometry(w, 5, d),
+          new THREE.MeshStandardMaterial({ color: 0x1a1d24 })
+        );
+        m.position.set(x, 1, z);
+        scene.add(m);
+      };
+      // Стенки чуть ближе друг к другу
+      addWall(0, -18, 30, 1);
+      addWall(0, 18, 30, 1);
+      addWall(-14, 0, 1, 36);
+      addWall(14, 0, 1, 36);
+
+      // КУБИКИ
+      function createTex(n) {
+        const canvas = document.createElement("canvas");
+        canvas.width = 128;
+        canvas.height = 128;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, 128, 128);
+        ctx.fillStyle = "#000";
+        const pts = {
+          1: [[64, 64]],
+          2: [
+            [32, 32],
+            [96, 96],
+          ],
+          3: [
+            [32, 32],
+            [64, 64],
+            [96, 96],
+          ],
+          4: [
+            [32, 32],
+            [96, 32],
+            [32, 96],
+            [96, 96],
+          ],
+          5: [
+            [32, 32],
+            [96, 32],
+            [64, 64],
+            [32, 96],
+            [96, 96],
+          ],
+          6: [
+            [32, 32],
+            [96, 32],
+            [32, 64],
+            [96, 64],
+            [32, 96],
+            [96, 96],
+          ],
+        };
+        pts[n].forEach((p) => {
+          ctx.beginPath();
+          ctx.arc(p[0], p[1], 15, 0, 7);
+          ctx.fill();
+        });
+        return new THREE.CanvasTexture(canvas);
+      }
+      const diceMats = [3, 4, 2, 5, 1, 6].map(
+        (n) => new THREE.MeshStandardMaterial({ map: createTex(n) })
+      );
+
+      for (let i = 0; i < 5; i++) {
+        const mesh = new THREE.Mesh(
+          new THREE.BoxGeometry(2.2, 2.2, 2.2),
+          diceMats
+        );
+        mesh.castShadow = true;
+        scene.add(mesh);
+        const body = new CANNON.Body({
+          mass: 2,
+          shape: new CANNON.Box(new CANNON.Vec3(1.1, 1.1, 1.1)),
+          linearDamping: 0.1, // Чтобы быстрее останавливались
+          angularDamping: 0.1,
+        });
+        body.position.set(i * 3.5 - 7, 1.2, 0);
+        world.addBody(body);
+        diceObjects.push({ mesh, body, isHeld: false, heldValue: 0 });
+      }
+
+      // БРОСОК
+      const rollBtn = document.getElementById("roll-btn");
+      const pBar = document.getElementById("power-bar");
+
+      const launch = () => {
+        if (isRolling || rollsLeft <= 0) return;
+        isRolling = true;
+        rollsLeft--;
+        document.getElementById("rolls-count").innerText = rollsLeft;
+        rollBtn.disabled = true;
+
+        const power = 35 + (charge / 100) * 35; // Увеличенная базовая скорость
+
+        diceObjects.forEach((d, i) => {
+          if (!d.isHeld) {
+            d.body.type = CANNON.Body.DYNAMIC;
+            d.body.wakeUp();
+            // Спавн внутри арены, чтобы не улетали
+            d.body.position.set(10, 8 + i * 2, (Math.random() - 0.5) * 10);
+            d.body.velocity.set(-power, -20, (Math.random() - 0.5) * 25);
+            d.body.angularVelocity.set(
+              Math.random() * 25,
+              Math.random() * 25,
+              Math.random() * 25
+            );
+          }
+        });
+        setTimeout(checkStop, 800);
+      };
+
+      function checkStop() {
+        const iter = setInterval(() => {
+          const moving = diceObjects.some(
+            (d) =>
+              !d.isHeld &&
+              d.body.sleepState !== CANNON.Body.SLEEPING &&
+              d.body.velocity.length() > 0.3
+          );
+          if (!moving) {
+            clearInterval(iter);
+            isRolling = false;
+            if (rollsLeft > 0) rollBtn.disabled = false;
+            updateUI();
+          }
+        }, 150);
+      }
+
+      function getVal(body) {
+        const dirs = [
+          { v: new THREE.Vector3(1, 0, 0), val: 3 },
+          { v: new THREE.Vector3(-1, 0, 0), val: 4 },
+          { v: new THREE.Vector3(0, 1, 0), val: 2 },
+          { v: new THREE.Vector3(0, -1, 0), val: 5 },
+          { v: new THREE.Vector3(0, 0, 1), val: 1 },
+          { v: new THREE.Vector3(0, 0, -1), val: 6 },
+        ];
+        const q = new THREE.Quaternion(
+          body.quaternion.x,
+          body.quaternion.y,
+          body.quaternion.z,
+          body.quaternion.w
+        );
+        let max = -1,
+          v = 1;
+        dirs.forEach((d) => {
+          const worldV = d.v.clone().applyQuaternion(q);
+          if (worldV.y > max) {
+            max = worldV.y;
+            v = d.val;
+          }
+        });
+        return v;
+      }
+
+      function updateUI() {
+        let total = 0;
+        const tray = document.getElementById("held-tray");
+        tray.innerHTML = "";
+        diceObjects.forEach((d) => {
+          const v = d.isHeld ? d.heldValue : getVal(d.body);
+          total += v;
+          if (d.isHeld) {
+            const el = document.createElement("div");
+            el.className = "die-icon";
+            el.innerText = d.heldValue;
+            tray.appendChild(el);
+          }
+        });
+        document.getElementById("res-text").innerText = total;
+      }
+
+      // ВВОД (Клик и Тач)
+      const ray = new THREE.Raycaster();
+      const m = new THREE.Vector2();
+
+      function handleInput(x, y) {
+        if (isRolling) return;
+        m.x = (x / window.innerWidth) * 2 - 1;
+        m.y = -(y / window.innerHeight) * 2 + 1;
+        ray.setFromCamera(m, camera);
+        const hits = ray.intersectObjects(diceObjects.map((d) => d.mesh));
+        if (hits.length > 0) {
+          const d = diceObjects.find((o) => o.mesh === hits[0].object);
+          d.isHeld = !d.isHeld;
+          if (d.isHeld) {
+            d.heldValue = getVal(d.body);
+            d.mesh.material.forEach((mt) => {
+              mt.emissive.setHex(0x4facfe);
+              mt.emissiveIntensity = 0.5;
+            });
+            d.body.type = CANNON.Body.STATIC;
+            d.body.position.set(-10 + diceObjects.indexOf(d) * 5, 1.2, -14); // Позиция в Hold
+          } else {
+            d.mesh.material.forEach((mt) => mt.emissive.setHex(0));
+            d.body.type = CANNON.Body.DYNAMIC;
+            d.body.position.set(
+              (Math.random() - 0.5) * 8,
+              5,
+              (Math.random() - 0.5) * 8
+            );
+            d.body.wakeUp();
+          }
+          updateUI();
+        }
+      }
+
+      window.addEventListener("touchstart", (e) =>
+        handleInput(e.touches[0].clientX, e.touches[0].clientY)
+      );
+      window.addEventListener("mousedown", (e) =>
+        handleInput(e.clientX, e.clientY)
+      );
+
+      const startCharge = (e) => {
+        e.preventDefault();
+        if (!isRolling && rollsLeft > 0) {
+          isCharging = true;
+          charge = 0;
+          document.getElementById("meter").style.display = "block";
+        }
+      };
+      const endCharge = () => {
+        if (isCharging) {
+          isCharging = false;
+          document.getElementById("meter").style.display = "none";
+          launch();
+        }
+      };
+
+      rollBtn.addEventListener("touchstart", startCharge);
+      window.addEventListener("touchend", endCharge);
+      rollBtn.addEventListener("mousedown", startCharge);
+      window.addEventListener("mouseup", endCharge);
+
+      document
+        .getElementById("reset-btn")
+        .addEventListener("click", () => location.reload());
+
+      function animate() {
+        requestAnimationFrame(animate);
+        world.step(1 / 60);
+        diceObjects.forEach((d) => {
+          d.mesh.position.copy(d.body.position);
+          d.mesh.quaternion.copy(d.body.quaternion);
+        });
+        if (isCharging && charge < 100) {
+          charge += 3;
+          pBar.style.width = charge + "%";
+        }
+        renderer.render(scene, camera);
+      }
+      animate();
+      updateUI();
+
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        adjustCamera();
+      });
+    </script>
+  </body>
+</html>

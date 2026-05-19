@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>3D Dice | Game Mode</title>
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+            }
+        }
+    </script>
+
+    <style>
+        body { margin: 0; overflow: hidden; background: #050608; font-family: 'Segoe UI', sans-serif; user-select: none; }
+        
+        #ui-top {
+            position: fixed; top: 20px; left: 0; width: 100%; text-align: center;
+            color: #fff; z-index: 200; pointer-events: none;
+        }
+        .stats { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #4facfe; margin-bottom: 5px; }
+        .result { font-size: 28px; font-weight: 900; color: #fff; }
+        .held-list { font-size: 14px; color: #aaa; margin-top: 5px; }
+
+        #ui-bottom {
+            position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+            z-index: 150; width: 85%; max-width: 400px; display: flex; flex-direction: column; gap: 12px;
+        }
+        .meter-container {
+            width: 100%; height: 6px; background: rgba(255,255,255,0.05);
+            border-radius: 3px; overflow: hidden; display: none;
+        }
+        #power-bar { width: 0%; height: 100%; background: #4facfe; box-shadow: 0 0 15px #4facfe; }
+
+        .btn-group { display: flex; gap: 10px; }
+        button {
+            flex: 1; padding: 18px; font-size: 16px; font-weight: 800;
+            cursor: pointer; border-radius: 14px; border: none;
+            background: #fff; color: #000; text-transform: uppercase;
+            transition: 0.2s;
+        }
+        button:active { transform: scale(0.95); }
+        button:disabled { opacity: 0.2; filter: grayscale(1); }
+        #reset-btn { flex: 0.3; background: rgba(255,255,255,0.1); color: #fff; font-size: 12px; }
+
+        #hint { position: fixed; top: 110px; width: 100%; text-align: center; color: rgba(255,255,255,0.3); font-size: 11px; }
+    </style>
+</head>
+<body>
+
+    <div id="ui-top">
+        <div class="stats">Попытки: <span id="rolls-count">3</span> / 3</div>
+        <div id="res-text" class="result">0</div>
+        <div id="held-values" class="held-list">Удержано: —</div>
+    </div>
+
+    <div id="hint">Кликай по костям, чтобы убрать/вернуть их</div>
+
+    <div id="ui-bottom">
+        <div class="meter-container" id="meter"><div id="power-bar"></div></div>
+        <div class="btn-group">
+            <button id="roll-btn">Бросить кубики</button>
+            <button id="reset-btn">Сброс</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import * as CANNON from 'cannon-es';
+
+        let rollsLeft = 3;
+        const DICE_COUNT = 5;
+        const DICE_SIZE = 2;
+        const diceObjects = [];
+        let isRolling = false, isCharging = false, charge = 0;
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 36, 24);
+        camera.lookAt(0, -2, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        const world = new CANNON.World();
+        world.gravity.set(0, -35, 0);
+        world.allowSleep = true;
+        world.solver.iterations = 25; 
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+        const light = new THREE.DirectionalLight(0xffffff, 0.8);
+        light.position.set(10, 30, 10);
+        light.castShadow = true;
+        scene.add(light);
+
+        // --- АРЕНА ---
+        function createArena() {
+            const floor = new THREE.Mesh(new THREE.PlaneGeometry(35, 35), new THREE.MeshStandardMaterial({ color: 0x0a0b0e }));
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            const floorBody = new CANNON.Body({ mass: 0 });
+            floorBody.addShape(new CANNON.Plane());
+            floorBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+            world.addBody(floorBody);
+
+            const addWall = (x, z, w, d, isVert) => {
+                const b = new CANNON.Body({ mass: 0 });
+                b.addShape(new CANNON.Box(new CANNON.Vec3(isVert ? 10 : w/2, 5, isVert ? d/2 : 10)));
+                b.position.set(x + (isVert ? (x > 0 ? 9.5 : -9.5) : 0), 2, z + (!isVert ? (z > 0 ? 9.5 : -9.5) : 0));
+                world.addBody(b);
+                
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, 3, d), new THREE.MeshStandardMaterial({ color: 0x1a1c22 }));
+                mesh.position.set(x, 1.5, z);
+                scene.add(mesh);
+            };
+            addWall(0, -16, 32, 1, false); addWall(0, 16, 32, 1, false);
+            addWall(-16, 0, 1, 32, true);  addWall(16, 0, 1, 32, true);
+        }
+        createArena();
+
+        // --- КУБИКИ ---
+        function getDiceTex(n) {
+            const canvas = document.createElement('canvas'); canvas.width = 128; canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#fff'; ctx.fillRect(0,0,128,128);
+            ctx.fillStyle = '#000';
+            const pts = { 1:[[64,64]], 2:[[32,32],[96,96]], 3:[[32,32],[64,64],[96,96]], 4:[[32,32],[96,32],[32,96],[96,96]], 5:[[32,32],[96,32],[64,64],[32,96],[96,96]], 6:[[32,32],[96,32],[32,64],[96,64],[32,96],[96,96]] };
+            pts[n].forEach(p => { ctx.beginPath(); ctx.arc(p[0], p[1], 14, 0, 7); ctx.fill(); });
+            return new THREE.CanvasTexture(canvas);
+        }
+        const mats = [3,4,2,5,1,6].map(n => new THREE.MeshStandardMaterial({ map: getDiceTex(n) }));
+
+        for (let i = 0; i < DICE_COUNT; i++) {
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(DICE_SIZE, DICE_SIZE, DICE_SIZE), mats);
+            mesh.castShadow = true;
+            scene.add(mesh);
+            const body = new CANNON.Body({ mass: 1.5, shape: new CANNON.Box(new CANNON.Vec3(DICE_SIZE/2, DICE_SIZE/2, DICE_SIZE/2)), sleepTimeLimit: 0.1 });
+            body.position.set(i*3.5 - 7, 1.1, 0);
+            world.addBody(body);
+            diceObjects.push({ mesh, body, isHeld: false, val: 0 });
+        }
+
+        // --- ЛОГИКА БРОСКА ---
+        const rollBtn = document.getElementById('roll-btn');
+        const pBar = document.getElementById('power-bar');
+
+        const start = () => { if(!isRolling && rollsLeft > 0) { isCharging = true; charge = 0; document.getElementById('meter').style.display = 'block'; } };
+        const end = () => { if(isCharging) { isCharging = false; document.getElementById('meter').style.display = 'none'; launch(); } };
+
+        function launch() {
+            isRolling = true; rollsLeft--;
+            document.getElementById('rolls-count').innerText = rollsLeft;
+            rollBtn.disabled = true;
+            
+            const basePower = 20 + (charge / 100) * 30;
+
+            diceObjects.forEach((d, i) => {
+                if (!d.isHeld) {
+                    d.body.type = CANNON.Body.DYNAMIC;
+                    d.body.wakeUp();
+                    
+                    // Рандомизация спавна (чтобы не накладывались)
+                    const randomOffsetZ = (Math.random() - 0.5) * 10;
+                    const randomOffsetY = i * 2.5; 
+                    d.body.position.set(13, 8 + randomOffsetY, randomOffsetZ); 
+                    
+                    // Рандомизация вектора силы
+                    const velX = -basePower - (Math.random() * 10);
+                    const velZ = (Math.random() - 0.5) * 20;
+                    d.body.velocity.set(velX, -10, velZ);
+                    d.body.angularVelocity.set(Math.random()*30, Math.random()*30, Math.random()*30);
+                }
+            });
+            setTimeout(wait, 1200);
+        }
+
+        function wait() {
+            const timer = setInterval(() => {
+                const active = diceObjects.some(d => !d.isHeld && d.body.sleepState !== CANNON.Body.SLEEPING && d.body.velocity.length() > 0.2);
+                if (!active) { clearInterval(timer); isRolling = false; if(rollsLeft > 0) rollBtn.disabled = false; updateUI(); }
+            }, 200);
+        }
+
+        function getDiceValue(body) {
+            const dirs = [{v:new THREE.Vector3(1,0,0),val:3},{v:new THREE.Vector3(-1,0,0),val:4},{v:new THREE.Vector3(0,1,0),val:2},{v:new THREE.Vector3(0,-1,0),val:5},{v:new THREE.Vector3(0,0,1),val:1},{v:new THREE.Vector3(0,0,-1),val:6}];
+            const q = new THREE.Quaternion(body.quaternion.x, body.quaternion.y, body.quaternion.z, body.quaternion.w);
+            let max = -1, v = 1;
+            dirs.forEach(d => { const worldV = d.v.clone().applyQuaternion(q); if(worldV.y > max) { max = worldV.y; v = d.val; } });
+            return v;
+        }
+
+        function updateUI() {
+            let total = 0;
+            let heldVals = [];
+            diceObjects.forEach(d => {
+                d.val = getDiceValue(d.body);
+                total += d.val;
+                if(d.isHeld) heldVals.push(d.val);
+            });
+            document.getElementById('res-text').innerText = total;
+            document.getElementById('held-values').innerText = heldVals.length > 0 ? `Удержано: ${heldVals.join(', ')}` : "Удержано: —";
+        }
+
+        // --- ВЗАИМОДЕЙСТВИЕ ---
+        const ray = new THREE.Raycaster();
+        const m = new THREE.Vector2();
+        
+        window.addEventListener('mousedown', (e) => {
+            if(isRolling) return;
+            m.x = (e.clientX / window.innerWidth) * 2 - 1; m.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            ray.setFromCamera(m, camera);
+            const hits = ray.intersectObjects(diceObjects.map(d => d.mesh));
+            
+            if(hits.length > 0) {
+                const d = diceObjects.find(obj => obj.mesh === hits[0].object);
+                d.isHeld = !d.isHeld;
+                
+                if(d.isHeld) {
+                    // В зону удержания
+                    d.mesh.material.forEach(mat => { mat.emissive.setHex(0x4facfe); mat.emissiveIntensity = 0.6; });
+                    d.body.type = CANNON.Body.STATIC;
+                    d.body.position.set(-13 + diceObjects.indexOf(d)*6.5, 1.1, -12); // Сетка Hold
+                    d.body.quaternion.set(0,0,0,1);
+                } else {
+                    // Возврат в игру
+                    d.mesh.material.forEach(mat => mat.emissive.setHex(0));
+                    d.body.type = CANNON.Body.DYNAMIC;
+                    // Слегка подбрасываем при возврате, чтобы не "застрял" в полу
+                    d.body.position.set((Math.random()-0.5)*10, 5, (Math.random()-0.5)*10);
+                    d.body.wakeUp();
+                }
+                updateUI();
+            }
+        });
+
+        rollBtn.addEventListener('mousedown', start);
+        window.addEventListener('mouseup', end);
+        document.getElementById('reset-btn').addEventListener('click', () => location.reload());
+
+        function animate() {
+            requestAnimationFrame(animate);
+            world.fixedStep();
+            diceObjects.forEach(d => { d.mesh.position.copy(d.body.position); d.mesh.quaternion.copy(d.body.quaternion); });
+            if(isCharging && charge < 100) { charge += 2.5; pBar.style.width = charge + '%'; }
+            renderer.render(scene, camera);
+        }
+        animate();
+        updateUI();
+    </script>
+</body>
+</html>

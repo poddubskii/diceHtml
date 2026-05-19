@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>3D Dice: Fixed Physics</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: #050505;
+        font-family: sans-serif;
+        user-select: none;
+      }
+      #res {
+        position: fixed;
+        top: 20px;
+        width: 100%;
+        text-align: center;
+        color: #f1c40f;
+        font-size: 24px;
+        font-weight: bold;
+        z-index: 100;
+        text-shadow: 2px 2px 5px #000;
+      }
+
+      #ui {
+        position: fixed;
+        bottom: 40px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 100;
+        width: 85%;
+        max-width: 320px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+      }
+      .meter-container {
+        width: 100%;
+        height: 12px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        border: 2px solid #333;
+        overflow: hidden;
+        display: none;
+      }
+      #power-bar {
+        width: 0%;
+        height: 100%;
+        background: linear-gradient(90deg, #2ecc71, #e74c3c);
+      }
+
+      button {
+        width: 100%;
+        padding: 20px;
+        font-size: 20px;
+        cursor: pointer;
+        border-radius: 50px;
+        border: none;
+        background: #c0392b;
+        color: white;
+        font-weight: bold;
+        box-shadow: 0 5px #8a2a20;
+      }
+      button:active {
+        transform: scale(0.95);
+      }
+      .table {
+        position: fixed;
+        display: block;
+        top: -91vh;
+        right: -50vh;
+        width: 30em;
+        height: 35em;
+        background: rgb(255 255 255 / 61%);
+        background-image: url(../static/img/images.png);
+        transform-style: preserve-3d;
+        background-repeat: no-repeat;
+        background-size: cover;
+        box-shadow: 0 50px 100px rgba(0, 0, 0, 0.5);
+        box-shadow: 0 50px 100px rgba(0, 0, 0, 0.5);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="res">ЗАЖМИ КНОПКУ ДЛЯ СИЛЫ</div>
+    <div id="ui">
+      <div class="meter-container" id="meter">
+        <div id="power-bar"></div>
+      </div>
+      <div class="table"></div>
+      <button id="roll-btn">БРОСИТЬ</button>
+    </div>
+
+    <script>
+      window.addEventListener("load", () => {
+        // Проверка наличия библиотек
+        if (typeof THREE === "undefined" || typeof CANNON === "undefined") {
+          document.getElementById("res").innerText =
+            "Ошибка загрузки библиотек!";
+          return;
+        }
+
+        // --- 1. ФИЗИКА (CANNON) ---
+        const world = new CANNON.World();
+        world.gravity.set(0, -50, 0); // Тяжелая гравитация
+
+        const diceMaterial = new CANNON.Material();
+        const floorMaterial = new CANNON.Material();
+        world.addContactMaterial(
+          new CANNON.ContactMaterial(floorMaterial, diceMaterial, {
+            friction: 0.05,
+            restitution: 0.3,
+          })
+        );
+
+        // Пол (физика)
+        const floorBody = new CANNON.Body({
+          mass: 0,
+          shape: new CANNON.Plane(),
+          material: floorMaterial,
+        });
+        floorBody.quaternion.setFromAxisAngle(
+          new CANNON.Vec3(1, 0, 0),
+          -Math.PI / 2
+        );
+        world.addBody(floorBody);
+
+        // Стены (физика)
+        const createWall = (x, z, w, d) => {
+          const wall = new CANNON.Body({
+            mass: 0,
+            shape: new CANNON.Box(new CANNON.Vec3(w / 2, 10, d / 2)),
+            material: floorMaterial,
+          });
+          wall.position.set(x, 5, z);
+          world.addBody(wall);
+        };
+        createWall(0, -25, 70, 1);
+        createWall(0, 25, 70, 1); // Верх-низ
+        createWall(-35, 0, 1, 50);
+        createWall(35, 0, 1, 50); // Лево-право
+
+        // --- 2. ГРАФИКА (THREE) ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(
+          45,
+          window.innerWidth / window.innerHeight,
+          0.1,
+          1000
+        );
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const sun = new THREE.DirectionalLight(0xffffff, 1);
+        sun.position.set(20, 50, 50);
+        sun.castShadow = true;
+        scene.add(sun);
+
+        // Сукно
+        const floorMesh = new THREE.Mesh(
+          new THREE.PlaneGeometry(100, 100),
+          new THREE.MeshPhongMaterial({ color: 0x1a472a })
+        );
+        floorMesh.rotation.x = -Math.PI / 2;
+        floorMesh.receiveShadow = true;
+        scene.add(floorMesh);
+
+        // --- 3. КУБИКИ ---
+        const diceMeshes = [];
+        const diceBodies = [];
+        const diceSize = 2.5;
+
+        // Генерация текстур для граней
+        const textures = [1, 2, 3, 4, 5, 6].map((n) => {
+          const cv = document.createElement("canvas");
+          cv.width = 128;
+          cv.height = 128;
+          const x = cv.getContext("2d");
+          x.fillStyle = "white";
+          x.fillRect(0, 0, 128, 128);
+          x.fillStyle = "black";
+          const d = (px, py) => {
+            x.beginPath();
+            x.arc(px, py, 12, 0, 7);
+            x.fill();
+          };
+          if ([1, 3, 5].includes(n)) d(64, 64);
+          if ([2, 3, 4, 5, 6].includes(n)) {
+            d(30, 30);
+            d(98, 98);
+          }
+          if ([4, 5, 6].includes(n)) {
+            d(30, 98);
+            d(98, 30);
+          }
+          if (n === 6) {
+            d(30, 64);
+            d(98, 64);
+          }
+          return new THREE.MeshPhongMaterial({
+            map: new THREE.CanvasTexture(cv),
+          });
+        });
+
+        for (let i = 0; i < 5; i++) {
+          const m = new THREE.Mesh(
+            new THREE.BoxGeometry(diceSize, diceSize, diceSize),
+            textures
+          );
+          m.castShadow = true;
+          scene.add(m);
+          diceMeshes.push(m);
+
+          const b = new CANNON.Body({
+            mass: 1,
+            shape: new CANNON.Box(
+              new CANNON.Vec3(diceSize / 2, diceSize / 2, diceSize / 2)
+            ),
+            material: diceMaterial,
+          });
+          world.addBody(b);
+          diceBodies.push(b);
+        }
+
+        // --- 4. ЛОГИКА СИЛЫ И БРОСКА ---
+        let charge = 0,
+          isCharging = false,
+          isRolling = false;
+        const btn = document.getElementById("roll-btn"),
+          bar = document.getElementById("power-bar"),
+          meter = document.getElementById("meter");
+
+        const doRoll = (p) => {
+          isRolling = true;
+          diceBodies.forEach((b, i) => {
+            // Вылет СПРАВА
+            b.position.set(30, 12, -10 + i * 5);
+            b.velocity.set(
+              -35 * p - Math.random() * 15,
+              5 * p,
+              (Math.random() - 0.5) * 20
+            );
+            b.angularVelocity.set(
+              Math.random() * 25 * p,
+              Math.random() * 25 * p,
+              Math.random() * 25 * p
+            );
+          });
+          document.getElementById("res").innerText =
+            p > 1.8 ? "МОЩНО!" : "ПОЕХАЛИ!";
+        };
+
+        const start = (e) => {
+          if (isRolling) return;
+          e.preventDefault();
+          isCharging = true;
+          charge = 0;
+          meter.style.display = "block";
+        };
+        const end = () => {
+          if (!isCharging) return;
+          isCharging = false;
+          meter.style.display = "none";
+          doRoll(0.5 + (charge / 100) * 2);
+        };
+
+        btn.addEventListener("mousedown", start);
+        window.addEventListener("mouseup", end);
+        btn.addEventListener("touchstart", start);
+        window.addEventListener("touchend", end);
+
+        // Адаптация камеры
+        const onResize = () => {
+          camera.aspect = window.innerWidth / window.innerHeight;
+          const dist = window.innerWidth < 600 ? 100 : 50;
+          camera.position.set(0, dist, dist * 0.85);
+          camera.lookAt(0, 0, 0);
+          camera.updateProjectionMatrix();
+          renderer.setSize(window.innerWidth, window.innerHeight);
+        };
+        window.addEventListener("resize", onResize);
+        onResize();
+
+        // --- 5. ЦИКЛ АНИМАЦИИ ---
+        function update() {
+          requestAnimationFrame(update);
+          world.step(1 / 60);
+
+          if (isCharging && charge < 100) {
+            charge += 1.5;
+            bar.style.width = charge + "%";
+          }
+
+          let moving = 0;
+          diceMeshes.forEach((m, i) => {
+            m.position.copy(diceBodies[i].position);
+            m.quaternion.copy(diceBodies[i].quaternion);
+            if (diceBodies[i].velocity.length() > 0.3) moving++;
+          });
+
+          if (isRolling && moving === 0) {
+            isRolling = false;
+            document.getElementById("res").innerText = "ОСТАНОВИЛИСЬ";
+          }
+          renderer.render(scene, camera);
+        }
+        update();
+      });
+    </script>
+  </body>
+</html>

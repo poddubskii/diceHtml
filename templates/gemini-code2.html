@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Triple Poker Dice Mobile</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+            }
+        }
+    </script>
+    <style>
+        :root { --bg-green: #005a00; --p-col: #122100; --ai-col: #ffffff; }
+        body { margin: 0; overflow: hidden; background: var(--bg-green); font-family: -apple-system, sans-serif; user-select: none; touch-action: none; }
+        
+        /* HEADER - Мобильный вид */
+        #header { 
+            position: fixed; top: 0; width: 100%; background: rgba(0,0,0,0.9); color: white; z-index: 100;
+            display: flex; flex-direction: column; border-bottom: 1px solid #555;
+        }
+        .top-info { display: flex; justify-content: space-between; padding: 4px 10px; font-size: 10px; color: #0f0; }
+        .score-row { display: flex; justify-content: space-around; padding: 2px 0; font-size: 18px; font-weight: bold; }
+        .progress-box { width: 100%; height: 18px; background: #222; position: relative; border-top: 1px solid #444; }
+        #progress-fill { width: 0%; height: 100%; background: #2e7d32; transition: 0.3s; }
+        #progress-text { position: absolute; width: 100%; text-align: center; top: 1px; font-size: 11px; font-weight: bold; }
+
+        /* TABLE - Компактная */
+        #ui-wrap { position: absolute; top: 75px; width: 100%; display: flex; justify-content: center; z-index: 50; pointer-events: none; }
+        #table { 
+            width: 96vw; max-width: 400px; background: #add8e6; display: grid; 
+            grid-template-columns: 40px repeat(3, 1fr) repeat(3, 1fr); 
+            border: 1px solid #000; pointer-events: auto;
+        }
+        .cell { border: 0.5px solid rgba(0,0,0,0.2); height: 20px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; }
+        .label { background: #ccc; font-size: 9px; justify-content: flex-start; padding-left: 3px; }
+        .p-c { background: var(--p-col); color: #4facfe; cursor: pointer; }
+        .a-c { background: var(--ai-col); color: #000; }
+        .filled { color: #fff !important; }
+        .ai-filled { color: #00f !important; }
+
+        /* CONTROLS */
+        #controls { position: fixed; bottom: 15px; left: 0; width: 100%; display: flex; flex-direction: column; align-items: center; z-index: 100; }
+        #roll-btn { 
+            width: 80px; height: 80px; border-radius: 50%; background: radial-gradient(circle, #ff3333, #800000);
+            border: 3px solid #fff; color: #fff; font-weight: bold; font-size: 14px; cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        #roll-btn:disabled { opacity: 0.4; }
+        #msg { color: #fff; font-size: 12px; margin-bottom: 5px; text-shadow: 1px 1px 1px #000; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div id="header">
+    <div class="top-info"><span>07.05.2026</span><span id="clock">16:53:01</span><span>⚙️ ❌</span></div>
+    <div class="score-row">
+        <span>🪐 <span id="p-sum">0</span></span>
+        <span>Swan <span id="a-sum">0</span></span>
+    </div>
+    <div class="progress-box">
+        <div id="progress-fill"></div>
+        <div id="progress-text">0 / 90</div>
+    </div>
+</div>
+
+<div id="ui-wrap"><div id="table"></div></div>
+
+<div id="controls">
+    <div id="msg">БРОСАЙ! (3)</div>
+    <button id="roll-btn">ROLL</button>
+</div>
+
+<script type="module">
+    import * as THREE from 'three';
+    import * as CANNON from 'cannon-es';
+
+    const ROWS = [
+        {id:'r1', n:'1'}, {id:'r2', n:'2'}, {id:'r3', n:'3'}, {id:'r4', n:'4'}, {id:'r5', n:'5'}, {id:'r6', n:'6'},
+        {id:'b1', n:'🎁'},
+        {id:'pair', n:'Para'}, {id:'two', n:'2+2'}, {id:'set', n:'▲'}, {id:'sq', n:'■'},
+        {id:'full', n:'Full'}, {id:'lstr', n:'LStr'}, {id:'bstr', n:'BStr'}, {id:'pok', n:'P'}, {id:'ch', n:'$'},
+        {id:'b2', n:'🎁'}
+    ];
+
+    let state = { p: [{},{},{}], a: [{},{},{}], turns: 0, rolls: 3, active: true };
+    const rollBtn = document.getElementById('roll-btn');
+
+    // ТАБЛИЦА
+    function initTable() {
+        const t = document.getElementById('table');
+        t.innerHTML = `<div class="cell label">№</div><div class="cell p-c" style="grid-column: span 3">PLAYER</div><div class="cell a-c" style="grid-column: span 3">AI</div>`;
+        ROWS.forEach(row => {
+            t.innerHTML += `<div class="cell label">${row.n}</div>`;
+            for(let i=0; i<3; i++) {
+                const c = document.createElement('div'); c.className = 'cell p-c'; c.id = `p_${i}_${row.id}`;
+                c.onclick = () => selectCell(i, row.id); t.appendChild(c);
+            }
+            for(let i=0; i<3; i++) t.innerHTML += `<div class="cell a-c" id="a_${i}_${row.id}"></div>`;
+        });
+    }
+    initTable();
+
+    // 3D И ФИЗИКА
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 1, 1000);
+    camera.position.set(0, 48, 22); camera.lookAt(0, -10, 0);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    document.body.appendChild(renderer.domElement);
+
+    const world = new CANNON.World(); world.gravity.set(0, -60, 0);
+    const dMat = new CANNON.Material(); const gMat = new CANNON.Material();
+    world.addContactMaterial(new CANNON.ContactMaterial(dMat, gMat, { restitution: 0.4, friction: 0.1 }));
+
+    const floorB = new CANNON.Body({ mass: 0, material: gMat });
+    floorB.addShape(new CANNON.Plane()); floorB.quaternion.setFromEuler(-Math.PI/2, 0, 0); world.addBody(floorB);
+
+    const dice = [];
+    const createDice = (i) => {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(2.3, 2.3, 2.3), [1,2,3,4,5,6].map(n => {
+            const c = document.createElement('canvas'); c.width=64; c.height=64;
+            const ctx = c.getContext('2d'); ctx.fillStyle='white'; ctx.fillRect(0,0,64,64); ctx.fillStyle='red';
+            const pts = {1:[[32,32]],2:[[16,16],[48,48]],3:[[16,16],[32,32],[48,48]],4:[[16,16],[48,16],[16,48],[48,48]],5:[[16,16],[48,16],[32,32],[16,48],[48,48]],6:[[16,16],[48,16],[16,32],[48,32],[16,48],[48,48]]};
+            pts[n].forEach(p => { ctx.beginPath(); ctx.arc(p[0],p[1],6,0,7); ctx.fill(); });
+            return new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(c) });
+        }));
+        mesh.castShadow = true; scene.add(mesh);
+        const body = new CANNON.Body({ mass: 2, shape: new CANNON.Box(new CANNON.Vec3(1.15,1.15,1.15)), material: dMat });
+        body.position.set(i*3-6, 1.2, 10); world.addBody(body);
+        dice.push({ mesh, body, held: false });
+    };
+    for(let i=0; i<5; i++) createDice(i);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 1));
+
+    // ВЫБОР КУБИКОВ (Raycasting)
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    function onTouch(e) {
+        if (!state.active || state.rolls === 3) return;
+        const x = e.touches ? e.touches[0].clientX : e.clientX;
+        const y = e.touches ? e.touches[0].clientY : e.clientY;
+        mouse.x = (x / window.innerWidth) * 2 - 1;
+        mouse.y = -(y / window.innerHeight) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const hits = raycaster.intersectObjects(dice.map(d => d.mesh));
+        if (hits.length > 0) {
+            const d = dice.find(die => die.mesh === hits[0].object);
+            d.held = !d.held;
+            d.body.type = d.held ? CANNON.Body.STATIC : CANNON.Body.DYNAMIC;
+            if(d.held) d.body.position.y = 4; else d.body.position.y = 1.2;
+        }
+    }
+    window.addEventListener('touchstart', onTouch);
+    window.addEventListener('mousedown', onTouch);
+
+    // ЛОГИКА
+    function roll() {
+        if (state.rolls <= 0 || !state.active) return;
+        state.rolls--;
+        rollBtn.disabled = true;
+        document.getElementById('msg').innerText = `КАТИМ... (${state.rolls})`;
+
+        dice.forEach(d => {
+            if(!d.held) {
+                d.body.type = CANNON.Body.DYNAMIC;
+                d.body.position.set(Math.random()*2, 10, Math.random()*2);
+                d.body.velocity.set((Math.random()-0.5)*20, -15, (Math.random()-0.5)*30);
+                d.body.angularVelocity.set(Math.random()*15, Math.random()*15, Math.random()*15);
+                d.body.wakeUp();
+            }
+        });
+
+        setTimeout(checkStop, 1500);
+    }
+
+    function checkStop() {
+        const iter = setInterval(() => {
+            if (!dice.some(d => d.body.velocity.length() > 0.1)) {
+                clearInterval(iter);
+                rollBtn.disabled = state.rolls === 0;
+                document.getElementById('msg').innerText = state.rolls > 0 ? `ВЫБЕРИ ИЛИ БРОСАЙ (${state.rolls})` : "ВЫБЕРИ ЯЧЕЙКУ!";
+            }
+        }, 200);
+    }
+
+    function getVals() {
+        return dice.map(d => {
+            const q = d.body.quaternion;
+            const v = new THREE.Quaternion(q.x, q.y, q.z, q.w);
+            const ups = [{v:new THREE.Vector3(1,0,0),n:3},{v:new THREE.Vector3(-1,0,0),n:4},{v:new THREE.Vector3(0,1,0),n:2},{v:new THREE.Vector3(0,-1,0),n:5},{v:new THREE.Vector3(0,0,1),n:1},{v:new THREE.Vector3(0,0,-1),n:6}];
+            let max = -1, res = 1;
+            ups.forEach(u => { const cur = u.v.clone().applyQuaternion(v).y; if(cur > max){ max=cur; res=u.n; } });
+            return res;
+        });
+    }
+
+    function calculate(vals, rowId) {
+        const counts = {}; vals.forEach(v => counts[v] = (counts[v]||0)+1);
+        const c = Object.values(counts).sort((a,b)=>b-a);
+        const sum = vals.reduce((a,b)=>a+b, 0);
+        const u = [...new Set(vals)].sort();
+        const isS = (len) => { let m=1, k=1; for(let i=0;i<u.length-1;i++){ if(u[i+1]===u[i]+1)k++; else k=1; m=Math.max(m,k); } return m>=len; };
+
+        switch(rowId) {
+            case 'r1': return (counts[1]||0)*1; case 'r2': return (counts[2]||0)*2;
+            case 'pair': return c[0]>=2 ? sum : 0;
+            case 'two': return c[0]>=2 && c[1]>=2 ? sum : 0;
+            case 'set': return c[0]>=3 ? sum : 0;
+            case 'sq': return c[0]>=4 ? sum : 0;
+            case 'full': return c[0]===3 && c[1]===2 ? sum : 0;
+            case 'lstr': return isS(4) ? 30 : 0;
+            case 'bstr': return isS(5) ? 40 : 0;
+            case 'pok': return c[0]===5 ? 50 : 0;
+            case 'ch': return sum;
+            default: return (counts[rowId.replace('r','')]||0) * parseInt(rowId.replace('r',''));
+        }
+    }
+
+    function selectCell(col, rowId) {
+        if (state.rolls === 3 || state.p[col][rowId] !== undefined || !state.active) return;
+        
+        const score = calculate(getVals(), rowId);
+        state.p[col][rowId] = score;
+        const el = document.getElementById(`p_${col}_${rowId}`);
+        el.innerText = score === 0 ? 'X' : score;
+        el.classList.add('filled');
+        
+        finishTurn();
+    }
+
+    function finishTurn() {
+        state.active = false;
+        state.turns++;
+        updateUI();
+        
+        // Сброс кубиков
+        dice.forEach((d,i) => {
+            d.held = false; d.body.type = CANNON.Body.STATIC;
+            d.body.position.set(i*3-6, 1.2, 10); d.body.quaternion.set(0,0,0,1);
+        });
+
+        // Ход ИИ (имитация)
+        setTimeout(() => {
+            let col = Math.floor(Math.random()*3);
+            let row = ROWS[Math.floor(Math.random()*ROWS.length)].id;
+            while(state.a[col][row] !== undefined || row.includes('b')) row = ROWS[Math.floor(Math.random()*ROWS.length)].id;
+            
+            const aiScore = Math.floor(Math.random()*20);
+            state.a[col][row] = aiScore;
+            const el = document.getElementById(`a_${col}_${row}`);
+            el.innerText = aiScore === 0 ? 'X' : aiScore;
+            el.classList.add('ai-filled');
+            
+            state.turns++;
+            state.rolls = 3;
+            state.active = true;
+            rollBtn.disabled = false;
+            document.getElementById('msg').innerText = "ТВОЙ ХОД! (3)";
+            updateUI();
+        }, 1000);
+    }
+
+    function updateUI() {
+        const sum = (p) => state[p].reduce((a, c) => a + Object.values(c).reduce((v,b)=>v+b, 0), 0);
+        document.getElementById('p-sum').innerText = sum('p');
+        document.getElementById('a-sum').innerText = sum('a');
+        document.getElementById('progress-text').innerText = `${state.turns} / 90`;
+        document.getElementById('progress-fill').style.width = (state.turns/90*100) + '%';
+    }
+
+    rollBtn.onclick = roll;
+    function animate() {
+        requestAnimationFrame(animate); world.step(1/60);
+        dice.forEach(d => { d.mesh.position.copy(d.body.position); d.mesh.quaternion.copy(d.body.quaternion); });
+        renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+    });
+</script>
+</body>
+</html>

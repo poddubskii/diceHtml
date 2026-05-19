@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Бросок кубиков</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --dice-size: 52px; --half: 26px; }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: #0a0f14;
+      font-family: sans-serif;
+    }
+
+    #scene {
+      width: 700px;
+      height: 520px;
+      position: relative;
+      overflow: hidden;
+      background: radial-gradient(ellipse at 50% 30%, #1a2a3a 0%, #060d14 100%);
+      perspective: 1200px;
+      perspective-origin: 50% 35%;
+      border-radius: 12px;
+    }
+
+    #table-surface {
+      position: absolute;
+      width: 200%;
+      height: 200%;
+      left: -50%;
+      top: 52%;
+      background: radial-gradient(ellipse at 50% 0%, #1e5c33 0%, #0e3320 55%, #071a10 100%);
+      transform: rotateX(68deg);
+      transform-origin: 50% 0%;
+      box-shadow: 0 -30px 80px rgba(0,0,0,0.9) inset;
+    }
+
+    #table-surface::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.012) 0px, transparent 1px, transparent 40px),
+        repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0px, transparent 1px, transparent 40px);
+    }
+
+    #felt-circle {
+      position: absolute;
+      width: 340px; height: 220px;
+      left: 50%; top: 52%;
+      transform: translateX(-50%) rotateX(68deg);
+      transform-origin: 50% 0%;
+      border-radius: 50%;
+      background: radial-gradient(ellipse, #1d6b3b 0%, #134d2a 70%, transparent 100%);
+      border: 2px solid rgba(255,255,255,0.07);
+      pointer-events: none;
+    }
+
+    #cup-wrap {
+      position: absolute;
+      left: 50%; top: 14%;
+      transform: translateX(-50%);
+      transform-style: preserve-3d;
+      z-index: 20;
+    }
+
+    .cup-body {
+      width: 80px; height: 110px;
+      position: relative;
+      transform-style: preserve-3d;
+    }
+
+    .cup-outer {
+      position: absolute; inset: 0;
+      background: linear-gradient(135deg, #4a4a4a 0%, #2a2a2a 40%, #1a1a1a 60%, #3a3a3a 100%);
+      border-radius: 6px 6px 16px 16px;
+      border: 1px solid #555;
+      clip-path: polygon(8% 0%, 92% 0%, 100% 100%, 0% 100%);
+      box-shadow: 2px 0 8px rgba(0,0,0,0.5) inset, -2px 0 8px rgba(0,0,0,0.5) inset;
+    }
+
+    .cup-rim {
+      position: absolute; top: -6px; left: -4px; right: -4px; height: 14px;
+      background: linear-gradient(to bottom, #666, #3a3a3a);
+      border-radius: 4px;
+      border: 1px solid #777;
+    }
+
+    .cup-shine {
+      position: absolute; left: 12px; top: 10px; width: 8px; height: 60%;
+      background: linear-gradient(to bottom, rgba(255,255,255,0.18), transparent);
+      border-radius: 4px;
+      pointer-events: none;
+    }
+
+    #field {
+      position: absolute; inset: 0;
+      transform-style: preserve-3d;
+      pointer-events: none;
+    }
+
+    .dice-wrapper {
+      position: absolute;
+      width: var(--dice-size); height: var(--dice-size);
+      left: 50%; top: 32%;
+      margin-left: calc(var(--half) * -1);
+      margin-top: calc(var(--half) * -1);
+      transform-style: preserve-3d;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .dice {
+      width: 100%; height: 100%;
+      position: absolute;
+      transform-style: preserve-3d;
+    }
+
+    .face {
+      position: absolute;
+      width: var(--dice-size); height: var(--dice-size);
+      background: #f8f5ee;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      display: grid;
+      grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+      padding: 6px;
+      backface-visibility: hidden;
+      box-shadow: inset 0 0 6px rgba(0,0,0,0.08), inset 2px 2px 4px rgba(255,255,255,0.6);
+    }
+
+    .dot {
+      width: 9px; height: 9px;
+      background: radial-gradient(circle at 35% 35%, #444, #111);
+      border-radius: 50%;
+      align-self: center; justify-self: center;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.4);
+    }
+
+    .f1 { transform: rotateY(0deg)   translateZ(var(--half)); }
+    .f6 { transform: rotateY(180deg) translateZ(var(--half)); }
+    .f3 { transform: rotateY(90deg)  translateZ(var(--half)); }
+    .f4 { transform: rotateY(-90deg) translateZ(var(--half)); }
+    .f2 { transform: rotateX(90deg)  translateZ(var(--half)); }
+    .f5 { transform: rotateX(-90deg) translateZ(var(--half)); }
+
+    .f1 { filter: brightness(1.05); }
+    .f6 { filter: brightness(0.75); }
+    .f3 { filter: brightness(0.9); }
+    .f4 { filter: brightness(0.85); }
+    .f2 { filter: brightness(1.0); }
+    .f5 { filter: brightness(0.7); }
+
+    .face[data-val="1"] .dot:nth-child(1) { grid-area: 2/2; }
+    .face[data-val="2"] .dot:nth-child(1) { grid-area: 1/1; }
+    .face[data-val="2"] .dot:nth-child(2) { grid-area: 3/3; }
+    .face[data-val="3"] .dot:nth-child(1) { grid-area: 1/1; }
+    .face[data-val="3"] .dot:nth-child(2) { grid-area: 2/2; }
+    .face[data-val="3"] .dot:nth-child(3) { grid-area: 3/3; }
+    .face[data-val="4"] .dot:nth-child(1) { grid-area: 1/1; }
+    .face[data-val="4"] .dot:nth-child(2) { grid-area: 1/3; }
+    .face[data-val="4"] .dot:nth-child(3) { grid-area: 3/1; }
+    .face[data-val="4"] .dot:nth-child(4) { grid-area: 3/3; }
+    .face[data-val="5"] .dot:nth-child(1) { grid-area: 1/1; }
+    .face[data-val="5"] .dot:nth-child(2) { grid-area: 1/3; }
+    .face[data-val="5"] .dot:nth-child(3) { grid-area: 2/2; }
+    .face[data-val="5"] .dot:nth-child(4) { grid-area: 3/1; }
+    .face[data-val="5"] .dot:nth-child(5) { grid-area: 3/3; }
+    .face[data-val="6"] .dot:nth-child(1) { grid-area: 1/1; }
+    .face[data-val="6"] .dot:nth-child(2) { grid-area: 1/3; }
+    .face[data-val="6"] .dot:nth-child(3) { grid-area: 2/1; }
+    .face[data-val="6"] .dot:nth-child(4) { grid-area: 2/3; }
+    .face[data-val="6"] .dot:nth-child(5) { grid-area: 3/1; }
+    .face[data-val="6"] .dot:nth-child(6) { grid-area: 3/3; }
+
+    .dice-shadow {
+      position: absolute;
+      width: 48px; height: 14px;
+      background: radial-gradient(ellipse, rgba(0,0,0,0.55) 0%, transparent 80%);
+      border-radius: 50%;
+      left: 50%; top: 50%;
+      transform: translateX(-50%) rotateX(90deg) translateZ(-26px);
+      pointer-events: none;
+      opacity: 0;
+    }
+
+    #throw-btn {
+      position: absolute;
+      bottom: 18px; left: 50%;
+      transform: translateX(-50%);
+      padding: 12px 38px;
+      background: linear-gradient(to bottom, #e8912a, #c0671a);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      box-shadow: 0 4px 0 #9a4f10, 0 6px 16px rgba(0,0,0,0.5);
+      z-index: 30;
+      transition: transform 0.1s, box-shadow 0.1s;
+    }
+    #throw-btn:active {
+      transform: translateX(-50%) translateY(3px);
+      box-shadow: 0 1px 0 #9a4f10, 0 2px 8px rgba(0,0,0,0.4);
+    }
+
+    #result-display {
+      position: absolute;
+      top: 12px; left: 50%;
+      transform: translateX(-50%);
+      color: rgba(255,255,255,0.85);
+      font-size: 14px;
+      font-family: sans-serif;
+      letter-spacing: 0.05em;
+      z-index: 30;
+      opacity: 0;
+      transition: opacity 0.4s;
+      text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .spark {
+      position: absolute;
+      width: 4px; height: 4px;
+      border-radius: 50%;
+      background: #fff;
+      pointer-events: none;
+      z-index: 25;
+    }
+  </style>
+</head>
+<body>
+
+<div id="scene">
+  <div id="table-surface"></div>
+  <div id="felt-circle"></div>
+  <div id="result-display"></div>
+
+  <div id="cup-wrap">
+    <div class="cup-body">
+      <div class="cup-rim"></div>
+      <div class="cup-outer"></div>
+      <div class="cup-shine"></div>
+    </div>
+  </div>
+
+  <div id="field"></div>
+
+  <button id="throw-btn">🎲 БРОСИТЬ</button>
+</div>
+
+<script>
+  const scene = document.getElementById('scene');
+  const field = document.getElementById('field');
+  const cupWrap = document.getElementById('cup-wrap');
+  const resultDisplay = document.getElementById('result-display');
+  const btn = document.getElementById('throw-btn');
+
+  const COUNT = 5;
+  const FACE_ORDER = [1,6,3,4,2,5];
+
+  for (let i = 0; i < COUNT; i++) {
+    const wrap = document.createElement('div');
+    wrap.className = 'dice-wrapper';
+
+    const dice = document.createElement('div');
+    dice.className = 'dice';
+
+    FACE_ORDER.forEach(v => {
+      const face = document.createElement('div');
+      face.className = `face f${v}`;
+      face.dataset.val = v;
+      for (let d = 0; d < v; d++) {
+        const dot = document.createElement('span');
+        dot.className = 'dot';
+        face.appendChild(dot);
+      }
+      dice.appendChild(face);
+    });
+
+    const shadow = document.createElement('div');
+    shadow.className = 'dice-shadow';
+
+    wrap.appendChild(dice);
+    wrap.appendChild(shadow);
+    field.appendChild(wrap);
+  }
+
+  const faceRots = {
+    1: [0, 0],
+    2: [90, 0],
+    3: [0, 90],
+    4: [0, -90],
+    5: [-90, 0],
+    6: [0, 180]
+  };
+
+  let throwing = false;
+
+  function spawnSparks(x, y) {
+    for (let s = 0; s < 8; s++) {
+      const spark = document.createElement('div');
+      spark.className = 'spark';
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 30 + Math.random() * 60;
+      const colors = ['#ffcc44','#ff8822','#ff4444','#ffffff','#44aaff'];
+      spark.style.cssText = `left:${x}px;top:${y}px;background:${colors[Math.floor(Math.random()*colors.length)]};opacity:1;transition:none;`;
+      scene.appendChild(spark);
+      const tx = Math.cos(angle) * speed;
+      const ty = Math.sin(angle) * speed;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          spark.style.transition = 'transform 0.5s ease-out, opacity 0.5s ease-out';
+          spark.style.transform = `translate(${tx}px, ${ty}px) scale(0)`;
+          spark.style.opacity = '0';
+          setTimeout(() => spark.remove(), 600);
+        });
+      });
+    }
+  }
+
+  function throwDice() {
+    if (throwing) return;
+    throwing = true;
+    btn.disabled = true;
+    resultDisplay.style.opacity = '0';
+
+    const wraps = document.querySelectorAll('.dice-wrapper');
+    wraps.forEach(w => {
+      const d = w.querySelector('.dice');
+      const sh = w.querySelector('.dice-shadow');
+      w.style.transition = 'none';
+      w.style.transform = 'translateX(0) translateY(0) translateZ(0) scale(0.15)';
+      w.style.opacity = '0';
+      d.style.transition = 'none';
+      d.style.transform = 'none';
+      if (sh) { sh.style.opacity = '0'; sh.style.transition = 'none'; }
+    });
+
+    cupWrap.style.transition = 'transform 0.2s ease-in';
+    cupWrap.style.transform = 'translateX(-50%) translateY(8px) rotateZ(12deg)';
+
+    setTimeout(() => {
+      cupWrap.style.transition = 'transform 0.45s cubic-bezier(0.4, 0, 0.2, 1)';
+      cupWrap.style.transform = 'translateX(-50%) translateY(-55px) rotateZ(-125deg)';
+
+      const results = [];
+
+      wraps.forEach((w, i) => {
+        const dice = w.querySelector('.dice');
+        const shadow = w.querySelector('.dice-shadow');
+        const delay = 80 + i * 55;
+        const result = Math.ceil(Math.random() * 6);
+        results.push(result);
+
+        setTimeout(() => {
+          const spreadX = (Math.random() - 0.5) * 480;
+          const spreadY = 110 + Math.random() * 250;
+          const spreadZ = (Math.random() - 0.5) * 60;
+
+          const spinX = (Math.floor(Math.random() * 8) + 5) * 90;
+          const spinY = (Math.floor(Math.random() * 8) + 5) * 90;
+          const spinZ = (Math.floor(Math.random() * 6) + 2) * 90;
+
+          const [fx, fy] = faceRots[result];
+          const finalRX = Math.round(spinX / 90) * 90 + fx;
+          const finalRY = Math.round(spinY / 90) * 90 + fy;
+          const finalTilt = (Math.random() - 0.5) * 8;
+
+          w.style.opacity = '1';
+          w.style.transition = 'transform 0.55s cubic-bezier(0.2, 0.8, 0.6, 1), opacity 0.15s';
+          w.style.transform = `translateX(${spreadX * 0.7}px) translateY(${spreadY * 0.4}px) translateZ(${spreadZ}px) scale(1)`;
+
+          dice.style.transition = 'transform 0.55s linear';
+          dice.style.transform = `rotateX(${spinX}deg) rotateY(${spinY}deg) rotateZ(${spinZ}deg)`;
+
+          setTimeout(() => {
+            w.style.transition = 'transform 0.38s cubic-bezier(0.34, 1.28, 0.64, 1)';
+            w.style.transform = `translateX(${spreadX}px) translateY(${spreadY}px) translateZ(0) scale(1) rotateZ(${finalTilt}deg)`;
+
+            dice.style.transition = 'transform 0.38s cubic-bezier(0.22, 1.2, 0.4, 1)';
+            dice.style.transform = `rotateX(${finalRX}deg) rotateY(${finalRY}deg) rotateZ(0deg)`;
+
+            const sceneRect = scene.getBoundingClientRect();
+            const wRect = w.getBoundingClientRect();
+            const lx = wRect.left - sceneRect.left + wRect.width / 2;
+            const ly = wRect.top - sceneRect.top + wRect.height / 2;
+            setTimeout(() => spawnSparks(lx, ly + spreadY * 0.4), 200);
+
+            setTimeout(() => {
+              if (shadow) {
+                shadow.style.transition = 'opacity 0.25s';
+                shadow.style.opacity = '0.7';
+              }
+            }, 300);
+          }, 430);
+        }, delay);
+      });
+
+      setTimeout(() => {
+        const sum = results.reduce((a, b) => a + b, 0);
+        resultDisplay.textContent = `Выпало: ${results.join(' + ')} = ${sum}`;
+        resultDisplay.style.opacity = '1';
+      }, 1100);
+
+      setTimeout(() => {
+        cupWrap.style.transition = 'transform 0.5s ease-in-out';
+        cupWrap.style.transform = 'translateX(-50%) translateY(0) rotateZ(0deg)';
+      }, 900);
+
+      setTimeout(() => {
+        throwing = false;
+        btn.disabled = false;
+      }, 1300);
+
+    }, 220);
+  }
+
+  btn.addEventListener('click', throwDice);
+</script>
+</body>
+</html>

@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>3D Dice Pro | Точный расчет</title>
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+            }
+        }
+    </script>
+
+    <style>
+        body { margin: 0; overflow: hidden; background: #05070a; font-family: sans-serif; user-select: none; }
+        #res {
+            position: fixed; top: 0; left: 0; width: 100%; text-align: center;
+            color: #fff; font-size: 24px; font-weight: 900; z-index: 200;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+            padding: 25px 0; pointer-events: none; text-transform: uppercase; letter-spacing: 2px;
+        }
+        #ui {
+            position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+            z-index: 150; width: 90%; max-width: 400px; display: flex; flex-direction: column; gap: 15px;
+        }
+        .meter-container {
+            width: 100%; height: 12px; background: rgba(255,255,255,0.1);
+            border-radius: 10px; overflow: hidden; display: none; border: 1px solid rgba(255,255,255,0.2);
+        }
+        #power-bar {
+            width: 0%; height: 100%; 
+            background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+            box-shadow: 0 0 15px #4facfe;
+        }
+        button {
+            width: 100%; padding: 20px; font-size: 22px; font-weight: bold;
+            cursor: pointer; border-radius: 15px; border: none;
+            background: #ffffff; color: #000;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            transition: all 0.1s; transform: scale(1);
+        }
+        button:active { transform: scale(0.96); background: #eee; }
+        #info {
+            position: fixed; bottom: 15px; width: 100%; text-align: center;
+            color: rgba(255,255,255,0.4); font-size: 11px; pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="res">Зажми кнопку для броска</div>
+    <div id="ui">
+        <div class="meter-container" id="meter"><div id="power-bar"></div></div>
+        <button id="roll-btn">БРОСИТЬ КУБИКИ</button>
+    </div>
+    <div id="info">Физика Cannon-es + Three.js | Идеальное определение граней</div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import * as CANNON from 'cannon-es';
+
+        // --- КОНФИГУРАЦИЯ ---
+        const DICE_COUNT = 5;
+        const DICE_SIZE = 2;
+        const params = {
+            friction: 0.1,
+            restitution: 0.3, // Прыгучесть
+            gravity: -19.8
+        };
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x05070a);
+        
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        // --- СВЕТ ---
+        const amb = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(amb);
+        const spot = new THREE.SpotLight(0xffffff, 0.8);
+        spot.position.set(10, 30, 10);
+        spot.castShadow = true;
+        spot.shadow.mapSize.width = 2048;
+        scene.add(spot);
+
+        // --- ФИЗИКА ---
+        const world = new CANNON.World();
+        world.gravity.set(0, params.gravity, 0);
+        world.allowSleep = true; // Позволяет кубикам "засыпать" для точности остановки
+
+        const diceMaterial = new CANNON.Material('dice');
+        const floorMaterial = new CANNON.Material('floor');
+        world.addContactMaterial(new CANNON.ContactMaterial(floorMaterial, diceMaterial, {
+            friction: params.friction,
+            restitution: params.restitution
+        }));
+
+        // Пол
+        const floorBody = new CANNON.Body({ mass: 0, material: floorMaterial });
+        floorBody.addShape(new CANNON.Plane());
+        floorBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+        world.addBody(floorBody);
+
+        const floorMesh = new THREE.Mesh(
+            new THREE.PlaneGeometry(100, 100),
+            new THREE.MeshStandardMaterial({ color: 0x111317, roughness: 0.8 })
+        );
+        floorMesh.rotation.x = -Math.PI / 2;
+        floorMesh.receiveShadow = true;
+        scene.add(floorMesh);
+
+        // Бортики (невидимые)
+        const addWall = (x, z, ry) => {
+            const wall = new CANNON.Body({ mass: 0, material: floorMaterial });
+            wall.addShape(new CANNON.Plane());
+            wall.position.set(x, 0, z);
+            wall.quaternion.setFromEuler(0, ry, 0);
+            world.addBody(wall);
+        };
+        addWall(-15, 0, Math.PI/2);
+        addWall(15, 0, -Math.PI/2);
+        addWall(0, 15, Math.PI);
+        addWall(0, -15, 0);
+
+        // --- КУБИКИ ---
+        function createDiceTexture(num) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            
+            // Фон
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0,0,256,256);
+            
+            // Рамка (имитация сглаживания)
+            ctx.strokeStyle = '#e0e0e0';
+            ctx.lineWidth = 20;
+            ctx.strokeRect(0,0,256,256);
+
+            // Точки
+            ctx.fillStyle = '#111';
+            const dots = {
+                1: [[128, 128]],
+                2: [[64, 64], [192, 192]],
+                3: [[64, 64], [128, 128], [192, 192]],
+                4: [[64, 64], [192, 64], [64, 192], [192, 192]],
+                5: [[64, 64], [192, 64], [128, 128], [64, 192], [192, 192]],
+                6: [[64, 64], [192, 64], [64, 128], [192, 128], [64, 192], [192, 192]]
+            };
+
+            dots[num].forEach(p => {
+                ctx.beginPath();
+                ctx.arc(p[0], p[1], 28, 0, Math.PI*2);
+                ctx.fill();
+            });
+
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        // Стандарт Three.js для BoxGeometry: [X+, X-, Y+, Y-, Z+, Z-]
+        // Чтобы сумма противоположных граней была 7:
+        // X+: 3, X-: 4
+        // Y+: 2, Y-: 5
+        // Z+: 1, Z-: 6
+        const diceMats = [
+            new THREE.MeshStandardMaterial({ map: createDiceTexture(3) }), // X+
+            new THREE.MeshStandardMaterial({ map: createDiceTexture(4) }), // X-
+            new THREE.MeshStandardMaterial({ map: createDiceTexture(2) }), // Y+
+            new THREE.MeshStandardMaterial({ map: createDiceTexture(5) }), // Y-
+            new THREE.MeshStandardMaterial({ map: createDiceTexture(1) }), // Z+
+            new THREE.MeshStandardMaterial({ map: createDiceTexture(6) })  // Z-
+        ];
+
+        const diceMeshes = [];
+        const diceBodies = [];
+
+        for(let i=0; i<DICE_COUNT; i++) {
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(DICE_SIZE, DICE_SIZE, DICE_SIZE), diceMats);
+            mesh.castShadow = true;
+            scene.add(mesh);
+            diceMeshes.push(mesh);
+
+            const body = new CANNON.Body({
+                mass: 1,
+                shape: new CANNON.Box(new CANNON.Vec3(DICE_SIZE/2, DICE_SIZE/2, DICE_SIZE/2)),
+                material: diceMaterial,
+                sleepTimeLimit: 0.1,
+                sleepSpeedLimit: 0.5
+            });
+            body.position.set(i*3 - 6, 2, 0);
+            world.addBody(body);
+            diceBodies.push(body);
+        }
+
+        // --- ЛОГИКА РАСЧЕТА ---
+        function getDiceValue(body) {
+            // Локальные направления граней куба
+            const directions = [
+                { val: 3, vec: new THREE.Vector3(1, 0, 0) },  // X+
+                { val: 4, vec: new THREE.Vector3(-1, 0, 0) }, // X-
+                { val: 2, vec: new THREE.Vector3(0, 1, 0) },  // Y+
+                { val: 5, vec: new THREE.Vector3(0, -1, 0) }, // Y-
+                { val: 1, vec: new THREE.Vector3(0, 0, 1) },  // Z+
+                { val: 6, vec: new THREE.Vector3(0, 0, -1) }  // Z-
+            ];
+
+            const quaternion = new THREE.Quaternion(
+                body.quaternion.x,
+                body.quaternion.y,
+                body.quaternion.z,
+                body.quaternion.w
+            );
+
+            let maxUp = -1;
+            let value = 0;
+
+            directions.forEach(d => {
+                // Поворачиваем локальный вектор грани в мировые координаты
+                const worldVec = d.vec.clone().applyQuaternion(quaternion);
+                // Чем больше компонента Y, тем больше грань "смотрит вверх"
+                if(worldVec.y > maxUp) {
+                    maxUp = worldVec.y;
+                    value = d.val;
+                }
+            });
+
+            return value;
+        }
+
+        // --- УПРАВЛЕНИЕ ---
+        let charge = 0;
+        let isCharging = false;
+        let isRolling = false;
+
+        const btn = document.getElementById('roll-btn');
+        const resDiv = document.getElementById('res');
+        const powerBar = document.getElementById('power-bar');
+        const meter = document.getElementById('meter');
+
+        function roll() {
+            if(isRolling) return;
+            isRolling = true;
+            resDiv.innerHTML = "Бросаем...";
+            
+            const force = 15 + (charge / 100) * 35;
+
+            diceBodies.forEach((body, i) => {
+                body.wakeUp();
+                // Позиция "в руке" (справа сверху)
+                body.position.set(12, 10 + Math.random()*5, (i-2)*3);
+                
+                // Импульс в сторону центра стола
+                const forceVec = new CANNON.Vec3(-force - Math.random()*10, -5, (Math.random()-0.5)*10);
+                body.velocity.set(forceVec.x, forceVec.y, forceVec.z);
+                
+                // Случайное кручение
+                body.angularVelocity.set(
+                    Math.random() * 20,
+                    Math.random() * 20,
+                    Math.random() * 20
+                );
+            });
+
+            checkStop();
+        }
+
+        function checkStop() {
+            const interval = setInterval(() => {
+                const allStopped = diceBodies.every(b => b.sleepState === CANNON.Body.SLEEPING || b.velocity.length() < 0.1);
+                
+                if(allStopped) {
+                    clearInterval(interval);
+                    const values = diceBodies.map(b => getDiceValue(b));
+                    const total = values.reduce((a, b) => a + b, 0);
+                    resDiv.innerHTML = `${values.join(' • ')} = <span style="color:#4facfe">${total}</span>`;
+                    isRolling = false;
+                    if(navigator.vibrate) navigator.vibrate(50);
+                }
+            }, 200);
+        }
+
+        // Обработка кнопки
+        const start = () => { if(!isRolling){ isCharging = true; charge = 0; meter.style.display = 'block'; } };
+        const end = () => { if(isCharging){ isCharging = false; roll(); meter.style.display = 'none'; } };
+
+        btn.addEventListener('mousedown', start);
+        window.addEventListener('mouseup', end);
+        btn.addEventListener('touchstart', (e) => { e.preventDefault(); start(); });
+        window.addEventListener('touchend', end);
+
+        // --- ЦИКЛ ---
+        camera.position.set(0, 25, 25);
+        camera.lookAt(0, 0, 0);
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Шаг физики
+            world.fixedStep();
+
+            // Синхронизация Mesh
+            for(let i=0; i<DICE_COUNT; i++) {
+                diceMeshes[i].position.copy(diceBodies[i].position);
+                diceMeshes[i].quaternion.copy(diceBodies[i].quaternion);
+            }
+
+            if(isCharging && charge < 100) {
+                charge += 1.5;
+                powerBar.style.width = charge + '%';
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>

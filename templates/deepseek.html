@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>3D Dice: Realistic Roll – Настоящие кубики</title>
+    
+    <!-- CDN стабильных версий Three.js и Cannon.es (лучший форк Cannon.js) -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #0a0f1a;
+            font-family: 'Segoe UI', 'Poppins', system-ui, sans-serif;
+            user-select: none;
+            touch-action: pan-x pan-y; /* позволяем скролл только если нужно, но кнопка работает */
+        }
+        /* Индикатор результата */
+        #res {
+            position: fixed;
+            top: 20px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            color: #ffd966;
+            font-size: 26px;
+            font-weight: 800;
+            z-index: 200;
+            text-shadow: 3px 3px 8px #000000aa;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px);
+            padding: 8px 0;
+            letter-spacing: 1px;
+            font-family: monospace;
+        }
+        /* UI панель */
+        #ui {
+            position: fixed;
+            bottom: 35px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 150;
+            width: 85%;
+            max-width: 360px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            align-items: center;
+        }
+        .meter-container {
+            width: 100%;
+            height: 14px;
+            background: rgba(30,30,40,0.8);
+            border-radius: 30px;
+            border: 1px solid rgba(255,215,0,0.6);
+            overflow: hidden;
+            backdrop-filter: blur(4px);
+            box-shadow: 0 2px 8px black;
+            display: none;
+        }
+        #power-bar {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #2ecc71, #f39c12, #e67e22, #e74c3c);
+            border-radius: 30px;
+            transition: width 0.02s linear;
+        }
+        button {
+            width: 100%;
+            padding: 18px 20px;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 60px;
+            border: none;
+            background: #e67e22;
+            color: white;
+            box-shadow: 0 8px 0 #b45f1b;
+            transition: 0.05s linear;
+            font-family: inherit;
+            letter-spacing: 2px;
+        }
+        button:active {
+            transform: translateY(4px);
+            box-shadow: 0 4px 0 #b45f1b;
+        }
+        /* подсказка */
+        #info-tip {
+            position: fixed;
+            bottom: 110px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            color: #ccc;
+            font-size: 12px;
+            background: rgba(0,0,0,0.5);
+            width: fit-content;
+            margin: 0 auto;
+            padding: 4px 12px;
+            border-radius: 20px;
+            backdrop-filter: blur(4px);
+            pointer-events: none;
+            z-index: 100;
+        }
+        @media (max-width: 600px) {
+            button { padding: 14px; font-size: 22px; }
+            #res { font-size: 20px; top: 12px; }
+            #info-tip { bottom: 130px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="res">🎲 ЗАЖМИ КНОПКУ — НАБЕРИ СИЛУ 🎲</div>
+    <div id="ui">
+        <div class="meter-container" id="meter">
+            <div id="power-bar"></div>
+        </div>
+        <button id="roll-btn">⚡ БРОСИТЬ ⚡</button>
+    </div>
+    <div id="info-tip">💡 Чем дольше держишь — тем мощнее бросок! Кубики летят реалистично.</div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import * as CANNON from 'cannon-es';
+
+        // --- ИНИЦИАЛИЗАЦИЯ ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0a0f1a);
+        scene.fog = new THREE.FogExp2(0x0a0f1a, 0.008); // легкий туман для атмосферы
+        
+        // Камера с более динамичным обзором
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 500);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap; // мягкие тени
+        document.body.appendChild(renderer.domElement);
+        
+        // --- ОСВЕЩЕНИЕ (для реалистичного металлик/пластик эффекта) ---
+        // ambient + fill
+        const ambientLight = new THREE.AmbientLight(0x404060, 0.65);
+        scene.add(ambientLight);
+        
+        // Основной направленный свет с тенями
+        const mainLight = new THREE.DirectionalLight(0xfff5e0, 1.2);
+        mainLight.position.set(12, 28, 8);
+        mainLight.castShadow = true;
+        mainLight.receiveShadow = false;
+        mainLight.shadow.mapSize.width = 1024;
+        mainLight.shadow.mapSize.height = 1024;
+        mainLight.shadow.camera.near = 0.5;
+        mainLight.shadow.camera.far = 50;
+        mainLight.shadow.camera.left = -15;
+        mainLight.shadow.camera.right = 15;
+        mainLight.shadow.camera.top = 15;
+        mainLight.shadow.camera.bottom = -15;
+        scene.add(mainLight);
+        
+        // Заполняющий теплый свет сзади
+        const backLight = new THREE.PointLight(0xcc9966, 0.45);
+        backLight.position.set(-5, 12, -12);
+        scene.add(backLight);
+        
+        // холодный контровой свет
+        const rimLight = new THREE.PointLight(0x6688aa, 0.5);
+        rimLight.position.set(6, 10, -10);
+        scene.add(rimLight);
+        
+        // Мягкий свет снизу (имитация отражения от стола)
+        const fillLight = new THREE.PointLight(0x5a7a5a, 0.35);
+        fillLight.position.set(0, -3, 0);
+        scene.add(fillLight);
+        
+        // Декоративная сетка на полу (помогает визуализировать движение)
+        const gridHelper = new THREE.GridHelper(90, 20, 0x88aaff, 0x335588);
+        gridHelper.position.y = -0.05;
+        gridHelper.material.transparent = true;
+        gridHelper.material.opacity = 0.35;
+        scene.add(gridHelper);
+        
+        // --- ФИЗИЧЕСКИЙ МИР ---
+        const world = new CANNON.World();
+        world.gravity = new CANNON.Vec3(0, -22.0, 0); // усиленная гравитация для реалистичного отскока и падения
+        world.broadphase = new CANNON.NaiveBroadphase(); // работает хорошо для небольшого кол-ва тел
+        world.defaultContactMaterial.restitution = 0.45;
+        
+        // Материалы для трения и отскока
+        const diceMaterial = new CANNON.Material('dice');
+        const floorMaterial = new CANNON.Material('floor');
+        const wallMaterial = new CANNON.Material('wall');
+        
+        // Контакт кубик-пол (реалистичное трение, чтобы кубики не скользили бесконечно)
+        const diceFloorContact = new CANNON.ContactMaterial(diceMaterial, floorMaterial, {
+            friction: 0.45,
+            restitution: 0.58,
+            contactEquationStiffness: 1e8,
+        });
+        world.addContactMaterial(diceFloorContact);
+        world.defaultContactMaterial.material1 = diceMaterial;
+        world.defaultContactMaterial.material2 = floorMaterial;
+        
+        // Контакт кубик-стена (немного упругости)
+        const diceWallContact = new CANNON.ContactMaterial(diceMaterial, wallMaterial, {
+            friction: 0.3,
+            restitution: 0.55,
+        });
+        world.addContactMaterial(diceWallContact);
+        
+        // ----- ПОЛ (прозрачная текстура под стол, но с физикой) -----
+        const floorBody = new CANNON.Body({
+            mass: 0,
+            material: floorMaterial,
+            shape: new CANNON.Box(new CANNON.Vec3(40, 0.5, 40)),
+        });
+        floorBody.position.set(0, -1.2, 0);
+        world.addBody(floorBody);
+        
+        // Визуальный пол (стильный темный сукно)
+        const visualPlane = new THREE.Mesh(
+            new THREE.PlaneGeometry(78, 78),
+            new THREE.MeshStandardMaterial({ color: 0x1e3a2f, roughness: 0.7, metalness: 0.05, side: THREE.DoubleSide })
+        );
+        visualPlane.rotation.x = -Math.PI / 2;
+        visualPlane.position.y = -1.15;
+        visualPlane.receiveShadow = true;
+        scene.add(visualPlane);
+        
+        // Добавим круглую область для эстетики
+        const arenaRing = new THREE.Mesh(
+            new THREE.RingGeometry(12, 28, 32),
+            new THREE.MeshStandardMaterial({ color: 0xaa8c54, roughness: 0.4, metalness: 0.6, side: THREE.DoubleSide })
+        );
+        arenaRing.rotation.x = -Math.PI / 2;
+        arenaRing.position.y = -1.1;
+        arenaRing.receiveShadow = true;
+        scene.add(arenaRing);
+        
+        // ----- СТЕНЫ (ограничители, чтобы кубики не улетали) -----
+        const wallSizeX = 44;
+        const wallSizeZ = 44;
+        const wallHeight = 3.5;
+        const wallThick = 1.2;
+        
+        const addWall = (x, z, sx, sz, rotY) => {
+            const wallBody = new CANNON.Body({
+                mass: 0,
+                material: wallMaterial,
+                shape: new CANNON.Box(new CANNON.Vec3(sx/2, wallHeight/2, sz/2)),
+            });
+            wallBody.position.set(x, wallHeight/2, z);
+            world.addBody(wallBody);
+            
+            const wallMesh = new THREE.Mesh(
+                new THREE.BoxGeometry(sx, wallHeight, sz),
+                new THREE.MeshStandardMaterial({ color: 0x5a4a3a, roughness: 0.65, metalness: 0.1 })
+            );
+            wallMesh.position.set(x, wallHeight/2, z);
+            wallMesh.receiveShadow = true;
+            wallMesh.castShadow = true;
+            scene.add(wallMesh);
+        };
+        
+        // Границы: лево, право, перед, зад
+        addWall(-wallSizeX/2 - 0.6, 0, wallThick, wallSizeZ + 2, 0);
+        addWall(wallSizeX/2 + 0.6, 0, wallThick, wallSizeZ + 2, 0);
+        addWall(0, -wallSizeZ/2 - 0.6, wallSizeX + 2, wallThick, 0);
+        addWall(0, wallSizeZ/2 + 0.6, wallSizeX + 2, wallThick, 0);
+        
+        // Декоративные столбики по углам (для красоты)
+        const cornerMat = new THREE.MeshStandardMaterial({ color: 0xc9b27c, metalness: 0.5 });
+        const positions = [[-23, -23], [23, -23], [-23, 23], [23, 23]];
+        positions.forEach(([x, z]) => {
+            const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1, 1.8, 8), cornerMat);
+            pillar.position.set(x, -0.2, z);
+            pillar.castShadow = true;
+            scene.add(pillar);
+        });
+        
+        // --- СОЗДАНИЕ КУБИКОВ (5 штук, с реалистичными текстурами)---
+        const diceMeshes = [];
+        const diceBodies = [];
+        const diceCount = 5;
+        const diceSize = 2.2;
+        
+        // Функция генерации качественных текстур граней (более четкие точки)
+        const createFaceTexture = (number, bgColor = '#f8f4e8', dotColor = '#1a1e2c') => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            
+            // Фон с лёгким градиентом
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = dotColor;
+            
+            const centerX = canvas.width/2, centerY = canvas.height/2;
+            const radius = canvas.width * 0.11;
+            const offset = canvas.width * 0.28;
+            
+            const drawDot = (x, y) => {
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, Math.PI*2);
+                ctx.fill();
+                // добавим лёгкую тень
+                ctx.shadowBlur = 0;
+            };
+            
+            // расположение точек в зависимости от значения
+            if(number === 1 || number === 3 || number === 5) drawDot(centerX, centerY);
+            if(number === 2 || number === 3 || number === 4 || number === 5 || number === 6) {
+                drawDot(centerX - offset, centerY - offset);
+                drawDot(centerX + offset, centerY + offset);
+            }
+            if(number === 4 || number === 5 || number === 6) {
+                drawDot(centerX - offset, centerY + offset);
+                drawDot(centerX + offset, centerY - offset);
+            }
+            if(number === 6) {
+                drawDot(centerX - offset, centerY);
+                drawDot(centerX + offset, centerY);
+            }
+            // добавим обводку для четкости
+            ctx.strokeStyle = '#bba88a';
+            ctx.lineWidth = 8;
+            ctx.strokeRect(10, 10, canvas.width-20, canvas.height-20);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            return new THREE.MeshStandardMaterial({ map: texture, roughness: 0.28, metalness: 0.08 });
+        };
+        
+        // Материалы для 6 граней (1-6)
+        const faceMaterials = [];
+        for(let i = 1; i <= 6; i++) {
+            faceMaterials.push(createFaceTexture(i, '#fff3e0', '#2c2e3a'));
+        }
+        
+        // Функция определения выпавшего числа (по нормали верхней грани)
+        function getFaceValue(body, size) {
+            // Получаем кватернион и преобразуем локальные оси в мировые
+            const quat = body.quaternion;
+            // Локальные направления граней: вверх (0,1,0) в локальных координатах куба -> мировая ось Y
+            const localUp = new CANNON.Vec3(0, 1, 0);
+            const worldUp = quat.vmult(localUp);
+            // Находим максимальную проекцию на оси (какая грань смотрит вверх)
+            const absX = Math.abs(worldUp.x);
+            const absY = Math.abs(worldUp.y);
+            const absZ = Math.abs(worldUp.z);
+            
+            // Ориентация: определяем ближайшую ось, по знаку
+            if (absY > absX && absY > absZ) {
+                return worldUp.y > 0 ? 5 : 2;   // верх = 5 (6?) внимание: в стандартной развертке: 5 наверху, 2 внизу, но у нас текстуры расставлены условно. Важно сопоставить.
+                // Для единообразия: пусть грань Y+ = 5 очков, Y- = 2 очка (по стандарту dice)
+            }
+            if (absX > absY && absX > absZ) {
+                return worldUp.x > 0 ? 4 : 3;
+            }
+            if (absZ > absY && absZ > absX) {
+                return worldUp.z > 0 ? 6 : 1;
+            }
+            return 1;
+        }
+        
+        // Создаём кубики (5 штук) с произвольным стартовым положением (но вне зоны броска)
+        for (let i = 0; i < diceCount; i++) {
+            // Геометрия с закруглёнными краями? Делаем обычный куб, но добавим скошенный эффект через материал?
+            const geometry = new THREE.BoxGeometry(diceSize, diceSize, diceSize);
+            const mesh = new THREE.Mesh(geometry, faceMaterials);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+            
+            // Физическое тело
+            const shape = new CANNON.Box(new CANNON.Vec3(diceSize/2, diceSize/2, diceSize/2));
+            const body = new CANNON.Body({
+                mass: 1.2,
+                material: diceMaterial,
+                shape: shape,
+                linearDamping: 0.08,
+                angularDamping: 0.03,
+            });
+            // Начальная позиция "вне поля" пока не бросаем
+            body.position.set(0, -5, 0);
+            world.addBody(body);
+            
+            diceMeshes.push(mesh);
+            diceBodies.push(body);
+        }
+        
+        // --- ЛОГИКА БРОСКА с силой и мощностью ---
+        let charge = 0;
+        let isCharging = false;
+        let isRolling = false;
+        let rollTimer = null;
+        
+        const btn = document.getElementById('roll-btn');
+        const powerBar = document.getElementById('power-bar');
+        const meterDiv = document.getElementById('meter');
+        const resultDiv = document.getElementById('res');
+        
+        // Функция выполнения броска (мощность p от 0.4 до 2.2)
+        const performRoll = (power) => {
+            if (isRolling) return;
+            // Нормируем силу: заряд 0-100 -> мощность 0.45 до 2.2
+            const normalized = 0.45 + (power / 100) * 1.85;
+            const force = Math.min(2.25, normalized);
+            
+            isRolling = true;
+            
+            // Задаём случайную зону прицеливания (бросок вперёд-вправо с небольшим разбросом)
+            const baseX = 18;   // вылет с правой стороны
+            const baseZ = -7 + Math.random() * 14;
+            
+            diceBodies.forEach((b, idx) => {
+                // Сброс скоростей и угловых скоростей
+                b.velocity.set(0, 0, 0);
+                b.angularVelocity.set(0, 0, 0);
+                // Устанавливаем позицию: небольшой разброс по Z и Y
+                const offsetX = (Math.random() - 0.5) * 3.5;
+                const offsetZ = (Math.random() - 0.5) * 4;
+                b.position.set(baseX + offsetX, 2.8 + Math.random() * 1.5, baseZ + offsetZ);
+                // Импульс: влево (отрицательная ось X) + немного к центру по Z + подброс вверх
+                const strength = force * (0.9 + Math.random() * 0.45);
+                const velX = -28 * strength - Math.random() * 12;
+                const velZ = (Math.random() - 0.5) * 22;
+                const velY = 10 * strength + Math.random() * 8;
+                b.velocity.set(velX, velY, velZ);
+                
+                // Сильное случайное вращение для реалистичного кувыркания
+                b.angularVelocity.set(
+                    (Math.random() - 0.5) * 28 * force,
+                    (Math.random() - 0.5) * 28 * force,
+                    (Math.random() - 0.5) * 28 * force
+                );
+            });
+            
+            // Эффект в интерфейсе
+            if (force > 1.8) resultDiv.innerHTML = "💥 МЕГА БРОСОК! Кубики летят! 💥";
+            else if (force > 1.2) resultDiv.innerHTML = "⚡ ХОРОШАЯ СИЛА! Крутим кубики ⚡";
+            else resultDiv.innerHTML = "🎲 ЛЁГКИЙ БРОСОК... 🎲";
+            
+            // Таймер отслеживания остановки
+            let checkInterval = setInterval(() => {
+                let anyMoving = false;
+                for (let b of diceBodies) {
+                    const velMag = b.velocity.length();
+                    const angMag = b.angularVelocity.length();
+                    if (velMag > 0.35 || angMag > 0.45) {
+                        anyMoving = true;
+                        break;
+                    }
+                }
+                if (!anyMoving && isRolling) {
+                    clearInterval(checkInterval);
+                    isRolling = false;
+                    // Подсчёт результатов
+                    const results = [];
+                    for (let i = 0; i < diceBodies.length; i++) {
+                        const val = getFaceValue(diceBodies[i], diceSize);
+                        results.push(val);
+                    }
+                    const sum = results.reduce((a,b) => a+b, 0);
+                    resultDiv.innerHTML = `🎲 РЕЗУЛЬТАТ: ${results.join(' · ')}  |  СУММА: ${sum} 🎲`;
+                    // Дополнительно небольшая вибрация на мобильных (если есть)
+                    if (navigator.vibrate) navigator.vibrate(100);
+                }
+            }, 120);
+        };
+        
+        // Зарядка силы
+        const startCharge = (e) => {
+            if (isRolling) {
+                // Если кубики еще крутятся, нельзя бросать
+                resultDiv.innerHTML = "⏳ Подожди, кубики ещё крутятся! ⏳";
+                return;
+            }
+            e.preventDefault();
+            isCharging = true;
+            charge = 0;
+            powerBar.style.width = '0%';
+            meterDiv.style.display = 'block';
+            resultDiv.innerHTML = "💪 ЗАЖИМАЙ! НАБИРАЙ МОЩНОСТЬ 💪";
+        };
+        
+        const releaseCharge = (e) => {
+            if (!isCharging) return;
+            isCharging = false;
+            meterDiv.style.display = 'none';
+            let finalPower = Math.min(100, charge);
+            if (finalPower < 8) finalPower = 12; // минимальная сила, чтобы кубики хоть как-то вылетели
+            performRoll(finalPower);
+            charge = 0;
+        };
+        
+        // Поддержка мыши и касаний
+        btn.addEventListener('mousedown', startCharge);
+        window.addEventListener('mouseup', releaseCharge);
+        btn.addEventListener('touchstart', startCharge, { passive: false });
+        window.addEventListener('touchend', releaseCharge);
+        
+        // Запрещаем контекстное меню на кнопке
+        btn.addEventListener('contextmenu', (e) => e.preventDefault());
+        
+        // Заряд во время удержания
+        function chargeUpdate() {
+            if (isCharging && charge < 100) {
+                charge += 2.1;
+                if (charge > 100) charge = 100;
+                powerBar.style.width = charge + '%';
+            }
+            requestAnimationFrame(chargeUpdate);
+        }
+        chargeUpdate();
+        
+        // --- КАМЕРА: динамическое слежение с большим обзором, но фиксированная для игрового поля ---
+        function updateCamera() {
+            // Камера смотрит на центр арены (0, 1, 0) с высоты и удаления
+            const aspect = window.innerWidth / window.innerHeight;
+            const baseDist = window.innerWidth < 700 ? 44 : 52;
+            camera.position.set(0, 18, baseDist);
+            camera.lookAt(0, 0.8, 0);
+            camera.updateProjectionMatrix();
+        }
+        
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            updateCamera();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        updateCamera();
+        
+        // --- ДОП. ДЕКОР: парящие частицы / пыльца над столом ---
+        const particleCount = 400;
+        const particleGeometry = new THREE.BufferGeometry();
+        const particlePositions = new Float32Array(particleCount * 3);
+        for (let i = 0; i < particleCount; i++) {
+            particlePositions[i*3] = (Math.random() - 0.5) * 70;
+            particlePositions[i*3+1] = Math.random() * 4 - 1;
+            particlePositions[i*3+2] = (Math.random() - 0.5) * 60;
+        }
+        particleGeometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+        const particleMat = new THREE.PointsMaterial({ color: 0x99aacc, size: 0.08, transparent: true, opacity: 0.4 });
+        const particles = new THREE.Points(particleGeometry, particleMat);
+        scene.add(particles);
+        
+        // --- АНИМАЦИОННЫЙ ЦИКЛ: синхронизация физики и отрисовки ---
+        let lastTime = performance.now();
+        
+        function animate() {
+            const now = performance.now();
+            let delta = Math.min(1/30, (now - lastTime) / 1000);
+            lastTime = now;
+            
+            // Шаг физики с фиксированным временем
+            world.step(1 / 60, delta, 3);
+            
+            // Обновление позиций мешей
+            for (let i = 0; i < diceCount; i++) {
+                diceMeshes[i].position.copy(diceBodies[i].position);
+                diceMeshes[i].quaternion.copy(diceBodies[i].quaternion);
+            }
+            
+            // Легкая анимация частиц
+            particles.rotation.y += 0.002;
+            particles.rotation.x = Math.sin(Date.now() * 0.0005) * 0.05;
+            
+            // Подсветка меняет интенсивность слегка для живости
+            const time = Date.now() * 0.002;
+            rimLight.intensity = 0.55 + Math.sin(time) * 0.08;
+            
+            renderer.render(scene, camera);
+            requestAnimationFrame(animate);
+        }
+        
+        animate();
+        
+        // Первоначальное размещение кубиков красиво на столе, чтобы не падали до первого броска
+        setTimeout(() => {
+            if (!isRolling) {
+                diceBodies.forEach((b, idx) => {
+                    b.position.set(-8 + idx * 3.8, 0.8, -4 + (idx%2)*3);
+                    b.velocity.set(0,0,0);
+                    b.angularVelocity.set(0,0,0);
+                });
+            }
+        }, 100);
+        
+        // Небольшой информационный тоггл
+        console.log('3D Dice с улучшенной физикой и силой броска | Реалистичное поведение');
+    </script>
+</body>
+</html>
